@@ -9,10 +9,15 @@ from styles.styles import apply_style
 
 
 class PDFReader(QMainWindow):
-    def __init__(self):
+    def __init__(self, file_path=None):
+        """
+        Initializes the PDF reader window.
+        
+        Args:
+            file_path (str, optional): The path to a PDF file to open on startup.
+        """
         super().__init__()
         self.setWindowTitle("PDF Reader")
-        self.setGeometry(100, 100, 800, 600)
         
         # Document state
         self.doc = None
@@ -26,7 +31,12 @@ class PDFReader(QMainWindow):
         
         self.setup_ui()
         self.apply_style()
-    
+        self.showMaximized()  # Open in windowed fullscreen mode
+
+
+        if file_path:
+            self.load_pdf(file_path)
+
     def setup_ui(self):
         """Initializes and lays out the UI components."""
         # -----------------------------
@@ -247,30 +257,58 @@ class PDFReader(QMainWindow):
         except (ValueError, IndexError):
             self.page_edit.setText(str(self.current_page_index + 1))
 
+    def get_current_page_info(self):
+        """
+        Returns the current page index and the scroll offset within that page.
+        """
+        if self.page_height is None or self.page_height == 0:
+            return 0, 0
+        
+        vsb = self.scroll_area.verticalScrollBar()
+        scroll_val = vsb.value()
+        H = self.page_height + self.page_spacing
+        current_page_index = int(scroll_val / H)
+        offset_in_page = scroll_val % H
+        return current_page_index, offset_in_page
     
     def manual_zoom_changed(self):
         """Update zoom level when the user enters a new value."""
         try:
+            current_page_index, offset_in_page = self.get_current_page_info()
+            
             value = int(self.zoom_lineedit.text())
             self.zoom = value / 100.0
+            
             if self.doc:
                 self.clear_loaded_pages()
                 self.page_height = None
                 self.update_visible_pages()
+                
+                # Calculate new scroll position
+                new_scroll_pos = current_page_index * (self.page_height + self.page_spacing) + offset_in_page
+                self.scroll_area.verticalScrollBar().setValue(new_scroll_pos)
+                
         except (ValueError, IndexError):
             self.zoom_lineedit.setText(str(int(self.zoom * 100)))
     
     def adjust_zoom(self, delta):
         """Adjust zoom level via plus/minus buttons."""
         try:
+            current_page_index, offset_in_page = self.get_current_page_info()
+            
             new_zoom_percent = int(self.zoom * 100) + delta
             new_zoom_percent = max(20, min(300, new_zoom_percent))
             self.zoom_lineedit.setText(str(new_zoom_percent))
             self.zoom = new_zoom_percent / 100.0
+            
             if self.doc:
                 self.clear_loaded_pages()
                 self.page_height = None
                 self.update_visible_pages()
+                
+                # Calculate new scroll position
+                new_scroll_pos = current_page_index * (self.page_height + self.page_spacing) + offset_in_page
+                self.scroll_area.verticalScrollBar().setValue(new_scroll_pos)
         except Exception as e:
             print(f"Error adjusting zoom: {e}")
     
