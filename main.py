@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtWidgets import QApplication
-from ui.pdf_reader import PDFReader
+from ui import PDFReader
 
 def main():
     """
