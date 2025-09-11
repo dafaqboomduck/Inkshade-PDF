@@ -14,6 +14,8 @@ class ClickablePageLabel(QLabel):
         self.selection_rects = []
         self.dark_mode = False # Tracks the mode for selection color
         self.setMouseTracking(True) # To allow selection highlighting
+        self.selected_words = set()  # Store selected words as a set for robust tracking
+        self.line_word_map = {} # A cache to map line coordinates to word data
 
     def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode):
         """Sets the page image, text data, and zoom level."""
@@ -23,29 +25,130 @@ class ClickablePageLabel(QLabel):
         self.zoom_level = zoom_level
         self.dark_mode = dark_mode
         self.selection_rects = []
+        self.selected_words = set()
+        self._build_line_word_map()
         self.update() # Repaint the widget
+
+    def _build_line_word_map(self):
+        """Builds a map of (block_no, line_no) to a list of word data tuples."""
+        self.line_word_map = {}
+        if self.word_data:
+            for word_info in self.word_data:
+                block_no, line_no = word_info[5], word_info[6]
+                key = (block_no, line_no)
+                if key not in self.line_word_map:
+                    self.line_word_map[key] = []
+                self.line_word_map[key].append(word_info)
 
     def mousePressEvent(self, event):
         """Records the starting position for a new text selection."""
         if event.button() == Qt.LeftButton:
+            # If Ctrl is not pressed, start a new selection by clearing the old one.
+            if not (event.modifiers() & Qt.ControlModifier):
+                self.selected_words.clear()
             self.start_pos = event.pos()
             self.end_pos = None
-            self.selection_rects = []
             self.update()
 
     def mouseMoveEvent(self, event):
         """Updates the end position as the user drags and highlights text."""
         if event.buttons() & Qt.LeftButton and self.word_data:
             self.end_pos = event.pos()
-            self.selection_rects = self.get_selection_rects()
+            self._update_selection(event.modifiers())
             self.update()
         
     def mouseReleaseEvent(self, event):
         """Finalizes the selection on mouse button release."""
         if event.button() == Qt.LeftButton and self.word_data:
             self.end_pos = event.pos()
-            self.selection_rects = self.get_selection_rects()
+            self._update_selection(event.modifiers())
             self.update()
+
+    def _update_selection(self, modifiers):
+        """Internal method to update the set of selected words based on the drag area and line boundaries."""
+        if not self.start_pos or not self.end_pos or not self.word_data:
+            return
+
+        drag_rect = QRect(self.start_pos, self.end_pos).normalized()
+        all_words_in_order = sorted(self.word_data, key=lambda x: (x[5], x[6], x[7]))
+        dragged_words = set()
+
+        start_word_index = -1
+        end_word_index = -1
+
+        # Find the start and end word indices within the drag rectangle
+        for i, word_info in enumerate(all_words_in_order):
+            bbox = word_info[:4]
+            word_rect = QRectF(
+                bbox[0] * self.zoom_level,
+                bbox[1] * self.zoom_level,
+                (bbox[2] - bbox[0]) * self.zoom_level,
+                (bbox[3] - bbox[1]) * self.zoom_level
+            ).toRect()
+            
+            if drag_rect.intersects(word_rect):
+                if start_word_index == -1:
+                    start_word_index = i
+                end_word_index = i
+
+        if start_word_index == -1:
+            self.selection_rects = self._get_merged_selection_rects()
+            return
+        
+        # Determine the full set of words to be selected based on the start and end
+        words_to_select = all_words_in_order[start_word_index:end_word_index + 1]
+        dragged_words.update(words_to_select)
+        
+        # Update the main selection based on modifier keys
+        if modifiers & Qt.ControlModifier:
+            self.selected_words.symmetric_difference_update(dragged_words)
+        else:
+            self.selected_words.update(dragged_words)
+
+        self.selection_rects = self._get_merged_selection_rects()
+
+    def _get_merged_selection_rects(self):
+        """
+        Calculates and merges rectangles for each selected line for cleaner highlighting.
+        """
+        if not self.selected_words:
+            return []
+        
+        # Group selected words by line
+        lines_to_highlight = {}
+        for word_info in self.selected_words:
+            key = (word_info[5], word_info[6]) # (block_no, line_no)
+            if key not in lines_to_highlight:
+                lines_to_highlight[key] = []
+            lines_to_highlight[key].append(word_info)
+            
+        merged_rects = []
+        for words_in_line in lines_to_highlight.values():
+            if not words_in_line:
+                continue
+            
+            # Sort words in the line by their x-coordinate to handle left-to-right selection
+            sorted_words = sorted(words_in_line, key=lambda x: x[0])
+            
+            # Find the total bounding box for the words in this line
+            line_bbox = sorted_words[0][:4]
+            for word in sorted_words[1:]:
+                line_bbox = (
+                    min(line_bbox[0], word[0]),
+                    min(line_bbox[1], word[1]),
+                    max(line_bbox[2], word[2]),
+                    max(line_bbox[3], word[3])
+                )
+            
+            line_rect = QRectF(
+                line_bbox[0] * self.zoom_level,
+                line_bbox[1] * self.zoom_level,
+                (line_bbox[2] - line_bbox[0]) * self.zoom_level,
+                (line_bbox[3] - line_bbox[1]) * self.zoom_level
+            ).toRect()
+            merged_rects.append(line_rect)
+        
+        return merged_rects
 
     def paintEvent(self, event):
         """Draws the page image and then overlays the selection highlight."""
@@ -61,52 +164,41 @@ class ClickablePageLabel(QLabel):
             for rect in self.selection_rects:
                 painter.drawRect(rect)
             painter.end()
-
+    
     def get_selection_rects(self):
         """
-        Calculates the rectangles to highlight based on the mouse selection area.
-        This now operates on a word-by-word basis.
+        Calculates the rectangles to highlight from the set of selected words.
+        This method is now a simplified proxy to the line-based method.
         """
-        if not self.start_pos or not self.end_pos or not self.word_data:
-            return []
-
-        rects = []
-        selection_rect = QRect(self.start_pos, self.end_pos).normalized()
-        
-        # Iterate over the word data (PyMuPDF returns a tuple: (x0, y0, x1, y1, word, block_no, line_no, word_no))
-        for word_info in self.word_data:
-            bbox = word_info[:4]
-            word_rect = QRectF(
-                bbox[0] * self.zoom_level,
-                bbox[1] * self.zoom_level,
-                (bbox[2] - bbox[0]) * self.zoom_level,
-                (bbox[3] - bbox[1]) * self.zoom_level
-            ).toRect()
-            
-            if selection_rect.intersects(word_rect):
-                rects.append(word_rect)
-        return rects
+        return self._get_merged_selection_rects()
     
     def get_selected_text(self):
         """
         Extracts the actual text string from the selected words.
         """
-        if not self.start_pos or not self.end_pos or not self.word_data:
+        if not self.selected_words:
             return ""
 
-        selected_words = []
-        selection_rect = QRect(self.start_pos, self.end_pos).normalized()
-
-        for word_info in self.word_data:
-            bbox = word_info[:4]
-            word_rect = QRectF(
-                bbox[0] * self.zoom_level,
-                bbox[1] * self.zoom_level,
-                (bbox[2] - bbox[0]) * self.zoom_level,
-                (bbox[3] - bbox[1]) * self.zoom_level
-            ).toRect()
-            
-            if selection_rect.intersects(word_rect):
-                selected_words.append(word_info[4]) # The fifth element is the word text
+        # Sort the selected words by their y-coordinate and then x-coordinate
+        sorted_words = sorted(list(self.selected_words), key=lambda x: (x[1], x[0]))
         
-        return " ".join(selected_words)
+        # Build the final string, adding newlines between lines
+        text_lines = []
+        current_line_key = None
+        current_line_words = []
+        for word_info in sorted_words:
+            line_key = (word_info[5], word_info[6])
+            if current_line_key is None:
+                current_line_key = line_key
+            
+            if line_key != current_line_key:
+                text_lines.append(" ".join(current_line_words))
+                current_line_key = line_key
+                current_line_words = []
+            
+            current_line_words.append(word_info[4])
+        
+        if current_line_words:
+            text_lines.append(" ".join(current_line_words))
+
+        return "\n".join(text_lines)
