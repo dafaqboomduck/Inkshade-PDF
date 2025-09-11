@@ -133,7 +133,10 @@ class PDFReader(QMainWindow):
         # Document state
         self.doc = None
         self.total_pages = 0
-        self.zoom = 2.2  # 220% zoom by default
+        # Internal zoom level used for rendering. 
+        self.zoom = 2.2
+        # Base zoom factor, mapping 2.2 to the displayed 100%.
+        self.base_zoom = 2.2
         self.dark_mode = True  # Dark mode enabled by default
         self.page_spacing = 30  # Space between pages
         self.page_height = None  # Will be set after rendering the first page
@@ -181,7 +184,7 @@ class PDFReader(QMainWindow):
         
         # Zoom controls
         self.top_layout.addWidget(QLabel("Zoom:", self.top_frame))
-        self.zoom_lineedit = QLineEdit("220", self.top_frame)
+        self.zoom_lineedit = QLineEdit("100", self.top_frame)
         self.zoom_lineedit.setFixedWidth(50)
         self.zoom_lineedit.setValidator(QIntValidator(20, 300, self))
         self.zoom_lineedit.returnPressed.connect(self.manual_zoom_changed)
@@ -430,7 +433,8 @@ class PDFReader(QMainWindow):
             current_page_index, offset_in_page = self.get_current_page_info()
             
             value = int(self.zoom_lineedit.text())
-            self.zoom = value / 100.0
+            # Convert the displayed percentage to the internal zoom factor
+            self.zoom = (value / 100.0) * self.base_zoom
             
             if self.doc:
                 self.clear_loaded_pages()
@@ -442,17 +446,22 @@ class PDFReader(QMainWindow):
                 self.scroll_area.verticalScrollBar().setValue(new_scroll_pos)
                 
         except (ValueError, IndexError):
-            self.zoom_lineedit.setText(str(int(self.zoom * 100)))
+            # Display the current percentage if the input is invalid
+            current_zoom_percent = int((self.zoom / self.base_zoom) * 100)
+            self.zoom_lineedit.setText(str(current_zoom_percent))
     
     def adjust_zoom(self, delta):
         """Adjust zoom level via plus/minus buttons."""
         try:
             current_page_index, offset_in_page = self.get_current_page_info()
             
-            new_zoom_percent = int(self.zoom * 100) + delta
+            # Calculate the new displayed percentage
+            new_zoom_percent = int((self.zoom / self.base_zoom) * 100) + delta
             new_zoom_percent = max(20, min(300, new_zoom_percent))
             self.zoom_lineedit.setText(str(new_zoom_percent))
-            self.zoom = new_zoom_percent / 100.0
+            
+            # Convert the new displayed percentage to the internal zoom factor
+            self.zoom = (new_zoom_percent / 100.0) * self.base_zoom
             
             if self.doc:
                 self.clear_loaded_pages()
