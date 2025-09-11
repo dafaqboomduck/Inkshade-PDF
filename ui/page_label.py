@@ -44,6 +44,17 @@ class ClickablePageLabel(QLabel):
     def mousePressEvent(self, event):
         """Records the starting position for a new text selection."""
         if event.button() == Qt.LeftButton:
+            word_at_pos = self._get_word_at_pos(event.pos())
+            
+            # If the click is on an empty space and Ctrl is not held, clear all selections.
+            if not word_at_pos and not (event.modifiers() & Qt.ControlModifier):
+                self.selected_words.clear()
+                self.selection_rects = []
+                self.start_pos = None  # Prevent a drag from starting
+                self.end_pos = None
+                self.update()
+                return # Exit the function as no selection is initiated
+
             self.start_pos = event.pos()
             self.end_pos = None
             self._selection_at_start = self.selected_words.copy()
@@ -51,14 +62,14 @@ class ClickablePageLabel(QLabel):
 
     def mouseMoveEvent(self, event):
         """Updates the end position as the user drags and highlights text."""
-        if event.buttons() & Qt.LeftButton and self.word_data:
+        if event.buttons() & Qt.LeftButton and self.word_data and self.start_pos:
             self.end_pos = event.pos()
             self._update_selection(event.modifiers())
             self.update()
         
     def mouseReleaseEvent(self, event):
         """Finalizes the selection on mouse button release."""
-        if event.button() == Qt.LeftButton and self.word_data:
+        if event.button() == Qt.LeftButton and self.word_data and self.start_pos:
             self.end_pos = event.pos()
             self._update_selection(event.modifiers())
             self.update()
