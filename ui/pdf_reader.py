@@ -37,7 +37,6 @@ class PDFReader(QMainWindow):
         
         self.setup_ui()
         self.apply_style()
-        self.showMaximized()  # Open in windowed fullscreen mode
 
         if file_path:
             self.load_pdf(file_path)

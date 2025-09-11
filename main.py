@@ -14,7 +14,7 @@ def main():
         file_path = sys.argv[1]
         
     window = PDFReader(file_path)
-    window.show()
+    window.showMaximized()
     sys.exit(app.exec_())
 
 if __name__ == '__main__':
