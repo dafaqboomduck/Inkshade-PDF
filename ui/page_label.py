@@ -16,6 +16,7 @@ class ClickablePageLabel(QLabel):
         self.setMouseTracking(True) # To allow selection highlighting
         self.selected_words = set()  # Store selected words as a set for robust tracking
         self.line_word_map = {} # A cache to map line coordinates to word data
+        self._selection_at_start = set() # Store selection state at drag start
 
     def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode):
         """Sets the page image, text data, and zoom level."""
@@ -43,11 +44,9 @@ class ClickablePageLabel(QLabel):
     def mousePressEvent(self, event):
         """Records the starting position for a new text selection."""
         if event.button() == Qt.LeftButton:
-            # If Ctrl is not pressed, start a new selection by clearing the old one.
-            if not (event.modifiers() & Qt.ControlModifier):
-                self.selected_words.clear()
             self.start_pos = event.pos()
             self.end_pos = None
+            self._selection_at_start = self.selected_words.copy()
             self.update()
 
     def mouseMoveEvent(self, event):
@@ -64,20 +63,12 @@ class ClickablePageLabel(QLabel):
             self._update_selection(event.modifiers())
             self.update()
 
-    def _update_selection(self, modifiers):
-        """Internal method to update the set of selected words based on the drag area and line boundaries."""
-        if not self.start_pos or not self.end_pos or not self.word_data:
-            return
-
-        drag_rect = QRect(self.start_pos, self.end_pos).normalized()
-        all_words_in_order = sorted(self.word_data, key=lambda x: (x[5], x[6], x[7]))
-        dragged_words = set()
-
-        start_word_index = -1
-        end_word_index = -1
-
-        # Find the start and end word indices within the drag rectangle
-        for i, word_info in enumerate(all_words_in_order):
+    def _get_word_at_pos(self, pos):
+        """Finds the word at a given QPoint, returning its data tuple or None."""
+        if not self.word_data or not pos:
+            return None
+        
+        for word_info in self.word_data:
             bbox = word_info[:4]
             word_rect = QRectF(
                 bbox[0] * self.zoom_level,
@@ -86,24 +77,46 @@ class ClickablePageLabel(QLabel):
                 (bbox[3] - bbox[1]) * self.zoom_level
             ).toRect()
             
-            if drag_rect.intersects(word_rect):
-                if start_word_index == -1:
-                    start_word_index = i
-                end_word_index = i
+            if word_rect.contains(pos):
+                return word_info
+        return None
 
-        if start_word_index == -1:
+    def _update_selection(self, modifiers):
+        """Internal method to update the set of selected words based on the drag area and line boundaries."""
+        if not self.start_pos or not self.end_pos or not self.word_data:
+            return
+
+        drag_rect = QRect(self.start_pos, self.end_pos).normalized()
+        all_words_in_order = sorted(self.word_data, key=lambda x: (x[5], x[6], x[7]))
+
+        start_word = self._get_word_at_pos(self.start_pos)
+        end_word = self._get_word_at_pos(self.end_pos)
+
+        if not start_word or not end_word:
             self.selection_rects = self._get_merged_selection_rects()
             return
         
-        # Determine the full set of words to be selected based on the start and end
-        words_to_select = all_words_in_order[start_word_index:end_word_index + 1]
-        dragged_words.update(words_to_select)
+        start_index = all_words_in_order.index(start_word)
+        end_index = all_words_in_order.index(end_word)
         
-        # Update the main selection based on modifier keys
+        min_index = min(start_index, end_index)
+        max_index = max(start_index, end_index)
+
+        # Get the words within the drag range
+        words_in_drag = set(all_words_in_order[min_index:max_index + 1])
+        
         if modifiers & Qt.ControlModifier:
-            self.selected_words.symmetric_difference_update(dragged_words)
+            # If Ctrl is held, toggle the state of words in the drag range
+            self.selected_words = self._selection_at_start.symmetric_difference(words_in_drag)
         else:
-            self.selected_words.update(dragged_words)
+            # If no Ctrl, determine intent (select vs. deselect) and update
+            # The intent is to select if the starting word was not already selected
+            is_starting_from_selected = start_word in self._selection_at_start
+            
+            if is_starting_from_selected:
+                self.selected_words = self._selection_at_start.difference(words_in_drag)
+            else:
+                self.selected_words = words_in_drag
 
         self.selection_rects = self._get_merged_selection_rects()
 
