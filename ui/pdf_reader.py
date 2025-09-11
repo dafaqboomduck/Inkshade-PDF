@@ -1,12 +1,126 @@
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QImage, QPixmap, QIntValidator
+from PyQt5.QtCore import Qt, QPoint, QRect, QRectF
+from PyQt5.QtGui import QImage, QPixmap, QIntValidator, QPainter, QColor
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame
+    QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame,
+    QMessageBox
 )
 import fitz  # PyMuPDF
+import sys
 from styles.styles import apply_style
+import pyperclip
 
+# Custom widget to display a page image and handle text selection
+class ClickablePageLabel(QLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.text_data = None  # Stores the text blocks, lines, and spans
+        self.zoom_level = 1.0
+        self.start_pos = None
+        self.end_pos = None
+        self.selection_rects = []
+        self.setMouseTracking(True) # To allow selection highlighting
+
+    def set_page_data(self, pixmap, text_data, zoom_level):
+        """Sets the page image, text data, and zoom level."""
+        self.setPixmap(pixmap)
+        self.text_data = text_data
+        self.zoom_level = zoom_level
+        self.selection_rects = []
+        self.update() # Repaint the widget
+
+    def mousePressEvent(self, event):
+        """Records the starting position for a new text selection."""
+        if event.button() == Qt.LeftButton:
+            self.start_pos = event.pos()
+            self.end_pos = None
+            self.selection_rects = []
+            self.update()
+
+    def mouseMoveEvent(self, event):
+        """Updates the end position as the user drags and highlights text."""
+        if event.buttons() & Qt.LeftButton and self.text_data:
+            self.end_pos = event.pos()
+            self.selection_rects = self.get_selection_rects()
+            self.update()
+        
+    def mouseReleaseEvent(self, event):
+        """Finalizes the selection on mouse button release."""
+        if event.button() == Qt.LeftButton and self.text_data:
+            self.end_pos = event.pos()
+            self.selection_rects = self.get_selection_rects()
+            self.update()
+
+    def paintEvent(self, event):
+        """Draws the page image and then overlays the selection highlight."""
+        super().paintEvent(event)
+        if self.selection_rects:
+            painter = QPainter(self)
+            painter.setPen(Qt.NoPen)
+            # Semi-transparent yellow for selection highlight
+            painter.setBrush(QColor(255, 255, 0, 128))
+            for rect in self.selection_rects:
+                painter.drawRect(rect)
+            painter.end()
+
+    def get_selection_rects(self):
+        """
+        Calculates the rectangles to highlight based on the mouse selection area.
+        This is the core logic for mapping mouse coordinates to text spans.
+        """
+        if not self.start_pos or not self.end_pos or not self.text_data:
+            return []
+
+        rects = []
+        selection_rect = QRect(self.start_pos, self.end_pos).normalized()
+        
+        for block in self.text_data['blocks']:
+            # block['type'] == 0 means a text block
+            if block['type'] == 0:
+                for line in block['lines']:
+                    for span in line['spans']:
+                        # The bbox is given in page coordinates. Scale it to the current zoom level.
+                        # The bbox format is (x0, y0, x1, y1)
+                        bbox = span['bbox']
+                        span_rect = QRectF(
+                            bbox[0] * self.zoom_level,
+                            bbox[1] * self.zoom_level,
+                            (bbox[2] - bbox[0]) * self.zoom_level,
+                            (bbox[3] - bbox[1]) * self.zoom_level
+                        ).toRect()
+                        
+                        # Check if the selection rectangle intersects with the text span's rectangle
+                        if selection_rect.intersects(span_rect):
+                            rects.append(span_rect)
+        return rects
+    
+    def get_selected_text(self):
+        """
+        Extracts the actual text string from the selected spans.
+        The selection logic is based on checking for intersection with each span's bounding box.
+        """
+        if not self.start_pos or not self.end_pos or not self.text_data:
+            return ""
+
+        selected_text = []
+        selection_rect = QRect(self.start_pos, self.end_pos).normalized()
+
+        for block in self.text_data['blocks']:
+            if block['type'] == 0:
+                for line in block['lines']:
+                    for span in line['spans']:
+                        bbox = span['bbox']
+                        span_rect = QRectF(
+                            bbox[0] * self.zoom_level,
+                            bbox[1] * self.zoom_level,
+                            (bbox[2] - bbox[0]) * self.zoom_level,
+                            (bbox[3] - bbox[1]) * self.zoom_level
+                        ).toRect()
+                        
+                        if selection_rect.intersects(span_rect):
+                            selected_text.append(span['text'])
+        
+        return "".join(selected_text)
 
 class PDFReader(QMainWindow):
     def __init__(self, file_path=None):
@@ -26,13 +140,13 @@ class PDFReader(QMainWindow):
         self.dark_mode = True  # Dark mode enabled by default
         self.page_spacing = 30  # Space between pages
         self.page_height = None  # Will be set after rendering the first page
-        self.loaded_pages = {}  # Dictionary mapping page index -> QLabel
+        # Now stores instances of our custom ClickablePageLabel
+        self.loaded_pages = {}
         self.current_page_index = 0
         
         self.setup_ui()
         self.apply_style()
         self.showMaximized()  # Open in windowed fullscreen mode
-
 
         if file_path:
             self.load_pdf(file_path)
@@ -83,6 +197,11 @@ class PDFReader(QMainWindow):
         self.minus_button = QPushButton("–", self.top_frame)
         self.minus_button.clicked.connect(lambda: self.adjust_zoom(-20))
         self.top_layout.addWidget(self.minus_button)
+
+        # New: Copy Text button
+        self.copy_button = QPushButton("Copy Selected Text", self.top_frame)
+        self.copy_button.clicked.connect(self.copy_selected_text)
+        self.top_layout.addWidget(self.copy_button)
         
         # -----------------------------
         #      PAGE DISPLAY AREA
@@ -110,7 +229,27 @@ class PDFReader(QMainWindow):
     def apply_style(self):
         """Apply style sheets based on dark mode."""
         apply_style(self, self.dark_mode)
+    
+    def copy_selected_text(self):
+        """Copies the selected text from the current page to the clipboard."""
+        if self.doc is None or self.current_page_index not in self.loaded_pages:
+            QMessageBox.warning(self, "No Page Loaded", "Please load a PDF document first.")
+            return
 
+        current_page_widget = self.loaded_pages[self.current_page_index]
+        selected_text = current_page_widget.get_selected_text()
+        
+        if selected_text:
+            try:
+                # Using pyperclip for cross-platform clipboard support
+                pyperclip.copy(selected_text)
+                QMessageBox.information(self, "Success", "Selected text copied to clipboard!")
+            except pyperclip.PyperclipException as e:
+                # Fallback or user info for platforms without a clipboard
+                QMessageBox.warning(self, "Copy Error", f"Could not copy text: {e}. Please install xclip or xsel for Linux, or try again.")
+        else:
+            QMessageBox.information(self, "No Selection", "No text has been selected on the current page.")
+            
     def container_resize_event(self, event):
         """Center all loaded pages horizontally in the container."""
         container_width = self.page_container.width()
@@ -137,7 +276,7 @@ class PDFReader(QMainWindow):
             self.page_height = None  # Reset page height for new document
             self.update_visible_pages()  # Load initial pages
         except Exception as e:
-            print(f"Error loading PDF: {e}")
+            QMessageBox.critical(self, "Error", f"Error loading PDF: {e}")
     
     def clear_loaded_pages(self):
         """Remove all loaded page widgets."""
@@ -146,24 +285,35 @@ class PDFReader(QMainWindow):
         self.loaded_pages.clear()
     
     def render_page(self, page_index):
-        """Render a single page and return a QPixmap."""
+        """
+        Render a single page and extract text data.
+        Returns a tuple of (QPixmap, text_data).
+        """
         try:
             page = self.doc.load_page(page_index)
             mat = fitz.Matrix(self.zoom, self.zoom)
+            
+            # Get the page image
             pix = page.get_pixmap(matrix=mat)
             img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
             if self.dark_mode:
                 img.invertPixels()
             pixmap = QPixmap.fromImage(img)
+            
+            # Get the text data
+            # Use "dict" output and "sort=True" to get structured text info, like in the example
+            text_data = page.get_text("dict", sort=True)
+
             if self.page_height is None:
                 # Set the page height and update container height
                 self.page_height = pixmap.height()
                 total_height = self.total_pages * (self.page_height + self.page_spacing) - self.page_spacing
                 self.page_container.setMinimumHeight(total_height)
-            return pixmap
+                
+            return pixmap, text_data
         except Exception as e:
-            print(f"Error rendering page {page_index+1}: {e}")
-            return None
+            QMessageBox.critical(self, "Error", f"Error rendering page {page_index+1}: {e}")
+            return None, None
     
     def update_visible_pages(self):
         """
@@ -175,10 +325,10 @@ class PDFReader(QMainWindow):
 
         # If no page has been rendered yet, force-render page 0 to initialize page_height.
         if self.page_height is None:
-            pix = self.render_page(0)
+            pix, text_data = self.render_page(0)
             if pix:
-                label = QLabel(self.page_container)
-                label.setPixmap(pix)
+                label = ClickablePageLabel(self.page_container)
+                label.set_page_data(pix, text_data, self.zoom)
                 label.setAlignment(Qt.AlignCenter)
                 container_width = self.page_container.width()
                 x = (container_width - pix.width()) // 2
@@ -210,10 +360,10 @@ class PDFReader(QMainWindow):
         # Load pages in the window if not already loaded
         for idx in range(start_index, end_index + 1):
             if idx not in self.loaded_pages:
-                pix = self.render_page(idx)
+                pix, text_data = self.render_page(idx)
                 if pix:
-                    label = QLabel(self.page_container)
-                    label.setPixmap(pix)
+                    label = ClickablePageLabel(self.page_container)
+                    label.set_page_data(pix, text_data, self.zoom)
                     label.setAlignment(Qt.AlignCenter)
                     container_width = self.page_container.width()
                     x = (container_width - pix.width()) // 2
@@ -284,7 +434,7 @@ class PDFReader(QMainWindow):
                 self.page_height = None
                 self.update_visible_pages()
                 
-                # Calculate new scroll position
+                # Calculate new scroll position based on the old offset
                 new_scroll_pos = current_page_index * (self.page_height + self.page_spacing) + offset_in_page
                 self.scroll_area.verticalScrollBar().setValue(new_scroll_pos)
                 
