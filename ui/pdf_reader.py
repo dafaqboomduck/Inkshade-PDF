@@ -15,16 +15,18 @@ class ClickablePageLabel(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.text_data = None  # Stores the text blocks, lines, and spans
+        self.word_data = None  # New: Stores word-level data from PyMuPDF
         self.zoom_level = 1.0
         self.start_pos = None
         self.end_pos = None
         self.selection_rects = []
         self.setMouseTracking(True) # To allow selection highlighting
 
-    def set_page_data(self, pixmap, text_data, zoom_level):
+    def set_page_data(self, pixmap, text_data, word_data, zoom_level):
         """Sets the page image, text data, and zoom level."""
         self.setPixmap(pixmap)
         self.text_data = text_data
+        self.word_data = word_data
         self.zoom_level = zoom_level
         self.selection_rects = []
         self.update() # Repaint the widget
@@ -39,14 +41,14 @@ class ClickablePageLabel(QLabel):
 
     def mouseMoveEvent(self, event):
         """Updates the end position as the user drags and highlights text."""
-        if event.buttons() & Qt.LeftButton and self.text_data:
+        if event.buttons() & Qt.LeftButton and self.word_data:
             self.end_pos = event.pos()
             self.selection_rects = self.get_selection_rects()
             self.update()
         
     def mouseReleaseEvent(self, event):
         """Finalizes the selection on mouse button release."""
-        if event.button() == Qt.LeftButton and self.text_data:
+        if event.button() == Qt.LeftButton and self.word_data:
             self.end_pos = event.pos()
             self.selection_rects = self.get_selection_rects()
             self.update()
@@ -66,61 +68,51 @@ class ClickablePageLabel(QLabel):
     def get_selection_rects(self):
         """
         Calculates the rectangles to highlight based on the mouse selection area.
-        This is the core logic for mapping mouse coordinates to text spans.
+        This now operates on a word-by-word basis.
         """
-        if not self.start_pos or not self.end_pos or not self.text_data:
+        if not self.start_pos or not self.end_pos or not self.word_data:
             return []
 
         rects = []
         selection_rect = QRect(self.start_pos, self.end_pos).normalized()
         
-        for block in self.text_data['blocks']:
-            # block['type'] == 0 means a text block
-            if block['type'] == 0:
-                for line in block['lines']:
-                    for span in line['spans']:
-                        # The bbox is given in page coordinates. Scale it to the current zoom level.
-                        # The bbox format is (x0, y0, x1, y1)
-                        bbox = span['bbox']
-                        span_rect = QRectF(
-                            bbox[0] * self.zoom_level,
-                            bbox[1] * self.zoom_level,
-                            (bbox[2] - bbox[0]) * self.zoom_level,
-                            (bbox[3] - bbox[1]) * self.zoom_level
-                        ).toRect()
-                        
-                        # Check if the selection rectangle intersects with the text span's rectangle
-                        if selection_rect.intersects(span_rect):
-                            rects.append(span_rect)
+        # Iterate over the word data (PyMuPDF returns a tuple: (x0, y0, x1, y1, word, block_no, line_no, word_no))
+        for word_info in self.word_data:
+            bbox = word_info[:4]
+            word_rect = QRectF(
+                bbox[0] * self.zoom_level,
+                bbox[1] * self.zoom_level,
+                (bbox[2] - bbox[0]) * self.zoom_level,
+                (bbox[3] - bbox[1]) * self.zoom_level
+            ).toRect()
+            
+            if selection_rect.intersects(word_rect):
+                rects.append(word_rect)
         return rects
     
     def get_selected_text(self):
         """
-        Extracts the actual text string from the selected spans.
-        The selection logic is based on checking for intersection with each span's bounding box.
+        Extracts the actual text string from the selected words.
         """
-        if not self.start_pos or not self.end_pos or not self.text_data:
+        if not self.start_pos or not self.end_pos or not self.word_data:
             return ""
 
-        selected_text = []
+        selected_words = []
         selection_rect = QRect(self.start_pos, self.end_pos).normalized()
 
-        for block in self.text_data['blocks']:
-            if block['type'] == 0:
-                for line in block['lines']:
-                    for span in line['spans']:
-                        bbox = span['bbox']
-                        span_rect = QRectF(
-                            bbox[0] * self.zoom_level,
-                            bbox[1] * self.zoom_level,
-                            (bbox[2] - bbox[0]) * self.zoom_level,
-                            (bbox[3] - bbox[1]) * self.zoom_level
-                        ).toRect()
-                        
-                        if selection_rect.intersects(span_rect):
-                            selected_text.append(span['text'])
+        for word_info in self.word_data:
+            bbox = word_info[:4]
+            word_rect = QRectF(
+                bbox[0] * self.zoom_level,
+                bbox[1] * self.zoom_level,
+                (bbox[2] - bbox[0]) * self.zoom_level,
+                (bbox[3] - bbox[1]) * self.zoom_level
+            ).toRect()
+            
+            if selection_rect.intersects(word_rect):
+                selected_words.append(word_info[4]) # The fifth element is the word text
         
-        return "".join(selected_text)
+        return " ".join(selected_words)
 
 class PDFReader(QMainWindow):
     def __init__(self, file_path=None):
@@ -291,7 +283,7 @@ class PDFReader(QMainWindow):
     def render_page(self, page_index):
         """
         Render a single page and extract text data.
-        Returns a tuple of (QPixmap, text_data).
+        Returns a tuple of (QPixmap, text_data, word_data).
         """
         try:
             page = self.doc.load_page(page_index)
@@ -304,9 +296,9 @@ class PDFReader(QMainWindow):
                 img.invertPixels()
             pixmap = QPixmap.fromImage(img)
             
-            # Get the text data
-            # Use "dict" output and "sort=True" to get structured text info, like in the example
+            # Get the text and word data
             text_data = page.get_text("dict", sort=True)
+            word_data = page.get_text("words", sort=True)
 
             if self.page_height is None:
                 # Set the page height and update container height
@@ -314,10 +306,10 @@ class PDFReader(QMainWindow):
                 total_height = self.total_pages * (self.page_height + self.page_spacing) - self.page_spacing
                 self.page_container.setMinimumHeight(total_height)
                 
-            return pixmap, text_data
+            return pixmap, text_data, word_data
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error rendering page {page_index+1}: {e}")
-            return None, None
+            return None, None, None
     
     def update_visible_pages(self):
         """
@@ -329,10 +321,10 @@ class PDFReader(QMainWindow):
 
         # If no page has been rendered yet, force-render page 0 to initialize page_height.
         if self.page_height is None:
-            pix, text_data = self.render_page(0)
+            pix, text_data, word_data = self.render_page(0)
             if pix:
                 label = ClickablePageLabel(self.page_container)
-                label.set_page_data(pix, text_data, self.zoom)
+                label.set_page_data(pix, text_data, word_data, self.zoom)
                 label.setAlignment(Qt.AlignCenter)
                 container_width = self.page_container.width()
                 x = (container_width - pix.width()) // 2
@@ -364,10 +356,10 @@ class PDFReader(QMainWindow):
         # Load pages in the window if not already loaded
         for idx in range(start_index, end_index + 1):
             if idx not in self.loaded_pages:
-                pix, text_data = self.render_page(idx)
+                pix, text_data, word_data = self.render_page(idx)
                 if pix:
                     label = ClickablePageLabel(self.page_container)
-                    label.set_page_data(pix, text_data, self.zoom)
+                    label.set_page_data(pix, text_data, word_data, self.zoom)
                     label.setAlignment(Qt.AlignCenter)
                     container_width = self.page_container.width()
                     x = (container_width - pix.width()) // 2
