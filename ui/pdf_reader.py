@@ -1,5 +1,5 @@
 from PyQt5.QtCore import Qt, QPoint, QRect, QRectF
-from PyQt5.QtGui import QImage, QPixmap, QIntValidator, QPainter, QColor
+from PyQt5.QtGui import QImage, QPixmap, QIntValidator, QPainter, QColor, QKeySequence
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame,
@@ -197,11 +197,6 @@ class PDFReader(QMainWindow):
         self.minus_button = QPushButton("–", self.top_frame)
         self.minus_button.clicked.connect(lambda: self.adjust_zoom(-20))
         self.top_layout.addWidget(self.minus_button)
-
-        # New: Copy Text button
-        self.copy_button = QPushButton("Copy Selected Text", self.top_frame)
-        self.copy_button.clicked.connect(self.copy_selected_text)
-        self.top_layout.addWidget(self.copy_button)
         
         # -----------------------------
         #      PAGE DISPLAY AREA
@@ -225,6 +220,15 @@ class PDFReader(QMainWindow):
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
+        
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts."""
+        # Check for Ctrl+C
+        if event.matches(QKeySequence.Copy):
+            self.copy_selected_text()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
     def apply_style(self):
         """Apply style sheets based on dark mode."""
