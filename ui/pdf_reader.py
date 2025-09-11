@@ -20,14 +20,16 @@ class ClickablePageLabel(QLabel):
         self.start_pos = None
         self.end_pos = None
         self.selection_rects = []
+        self.dark_mode = False # Tracks the mode for selection color
         self.setMouseTracking(True) # To allow selection highlighting
 
-    def set_page_data(self, pixmap, text_data, word_data, zoom_level):
+    def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode):
         """Sets the page image, text data, and zoom level."""
         self.setPixmap(pixmap)
         self.text_data = text_data
         self.word_data = word_data
         self.zoom_level = zoom_level
+        self.dark_mode = dark_mode
         self.selection_rects = []
         self.update() # Repaint the widget
 
@@ -59,8 +61,11 @@ class ClickablePageLabel(QLabel):
         if self.selection_rects:
             painter = QPainter(self)
             painter.setPen(Qt.NoPen)
-            # Semi-transparent yellow for selection highlight
-            painter.setBrush(QColor(255, 255, 0, 128))
+            # Change selection color based on dark mode
+            if self.dark_mode:
+                painter.setBrush(QColor(255, 255, 0, 128)) # Yellow for dark mode
+            else:
+                painter.setBrush(QColor(0, 0, 255, 100)) # Blue for light mode
             for rect in self.selection_rects:
                 painter.drawRect(rect)
             painter.end()
@@ -324,7 +329,8 @@ class PDFReader(QMainWindow):
             pix, text_data, word_data = self.render_page(0)
             if pix:
                 label = ClickablePageLabel(self.page_container)
-                label.set_page_data(pix, text_data, word_data, self.zoom)
+                # Pass the dark_mode state to the page label
+                label.set_page_data(pix, text_data, word_data, self.zoom, self.dark_mode)
                 label.setAlignment(Qt.AlignCenter)
                 container_width = self.page_container.width()
                 x = (container_width - pix.width()) // 2
@@ -359,7 +365,8 @@ class PDFReader(QMainWindow):
                 pix, text_data, word_data = self.render_page(idx)
                 if pix:
                     label = ClickablePageLabel(self.page_container)
-                    label.set_page_data(pix, text_data, word_data, self.zoom)
+                    # Pass the dark_mode state to the page label
+                    label.set_page_data(pix, text_data, word_data, self.zoom, self.dark_mode)
                     label.setAlignment(Qt.AlignCenter)
                     container_width = self.page_container.width()
                     x = (container_width - pix.width()) // 2
