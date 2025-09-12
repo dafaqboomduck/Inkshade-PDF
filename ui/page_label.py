@@ -1,5 +1,5 @@
 from PyQt5.QtCore import Qt, QRect, QRectF
-from PyQt5.QtGui import QPainter, QColor
+from PyQt5.QtGui import QPainter, QColor, QBrush
 from PyQt5.QtWidgets import QLabel
 
 # Custom widget to display a page image and handle text selection
@@ -17,9 +17,14 @@ class ClickablePageLabel(QLabel):
         self.selected_words = set()  # Store selected words as a set for robust tracking
         self.line_word_map = {} # A cache to map line coordinates to word data
         self._selection_at_start = set() # Store selection state at drag start
+        
+        # New attributes for search highlighting
+        self.search_highlights = []
+        self.current_search_highlight_index = -1
 
-    def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode):
-        """Sets the page image, text data, and zoom level."""
+
+    def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode, search_highlights=None, current_highlight_index=-1):
+        """Sets the page image, text, zoom, and search highlight data."""
         self.setPixmap(pixmap)
         self.text_data = text_data
         self.word_data = word_data
@@ -27,8 +32,19 @@ class ClickablePageLabel(QLabel):
         self.dark_mode = dark_mode
         self.selection_rects = []
         self.selected_words = set()
+        
+        # Set search data
+        self.search_highlights = search_highlights if search_highlights else []
+        self.current_search_highlight_index = current_highlight_index
+
         self._build_line_word_map()
         self.update() # Repaint the widget
+
+    def set_search_highlights(self, highlights, current_index=-1):
+        """Sets the search highlight rectangles for this page."""
+        self.search_highlights = highlights
+        self.current_search_highlight_index = current_index
+        self.update() # Trigger a repaint
 
     def _build_line_word_map(self):
         """Builds a map of (block_no, line_no) to a list of word data tuples."""
@@ -175,10 +191,32 @@ class ClickablePageLabel(QLabel):
         return merged_rects
 
     def paintEvent(self, event):
-        """Draws the page image and then overlays the selection highlight."""
+        """Draws the page image, search highlights, and then selection highlight."""
         super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # 1. Draw search highlights (underneath text selection)
+        if self.search_highlights:
+            # Color for all matches on the page
+            if self.dark_mode:
+                general_highlight_color = QColor(255, 255, 0, 100) # Semi-transparent yellow for dark mode
+            else:
+                general_highlight_color = QColor(0, 0, 255, 100) # Semi-transparent blue for light mode
+
+            for i, rect in enumerate(self.search_highlights):
+                highlight_rect = QRectF(
+                    rect.x0 * self.zoom_level,
+                    rect.y0 * self.zoom_level,
+                    rect.width * self.zoom_level,
+                    rect.height * self.zoom_level
+                )
+                
+                brush_color = general_highlight_color
+                painter.fillRect(highlight_rect, QBrush(brush_color))
+
+        # 2. Draw text selection highlights
         if self.selection_rects:
-            painter = QPainter(self)
             painter.setPen(Qt.NoPen)
             # Change selection color based on dark mode
             if self.dark_mode:
@@ -187,7 +225,8 @@ class ClickablePageLabel(QLabel):
                 painter.setBrush(QColor(0, 0, 255, 100)) # Blue for light mode
             for rect in self.selection_rects:
                 painter.drawRect(rect)
-            painter.end()
+        
+        painter.end()
     
     def get_selection_rects(self):
         """
