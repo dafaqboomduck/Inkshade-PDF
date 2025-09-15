@@ -1,14 +1,14 @@
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QImage, QPixmap, QIntValidator, QKeySequence
+from PyQt5.QtGui import QIntValidator, QKeySequence
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame,
     QMessageBox
 )
-import fitz  # PyMuPDF
-from ui.page_label import ClickablePageLabel
-from styles import apply_style
 import pyperclip
+from core.pdf_reader import PDFDocumentReader
+from ui.page_label import ClickablePageLabel
+from styles import apply_style # <--- New import
 
 class PDFReader(QMainWindow):
     def __init__(self, file_path=None):
@@ -22,8 +22,7 @@ class PDFReader(QMainWindow):
         self.setWindowTitle("PDF Reader")
         
         # Document state
-        self.doc = None
-        self.total_pages = 0
+        self.pdf_reader = PDFDocumentReader()
         self.zoom = 2.2
         self.base_zoom = 2.2
         self.dark_mode = True
@@ -31,14 +30,6 @@ class PDFReader(QMainWindow):
         self.page_height = None
         self.loaded_pages = {}
         self.current_page_index = 0
-
-        # Search state
-        self.search_results = []
-        self.current_search_index = -1
-        self.current_search_term = ""
-        
-        self.setup_ui()
-        self.apply_style()
 
         if file_path:
             self.load_pdf(file_path)
@@ -54,16 +45,7 @@ class PDFReader(QMainWindow):
         self.top_layout.setContentsMargins(5, 5, 5, 5)
         self.top_layout.setSpacing(10)
         
-        # Page number controls
-        self.top_layout.addWidget(QLabel("Page:", self.top_frame))
-        self.page_edit = QLineEdit("1", self.top_frame)
-        self.page_edit.setFixedWidth(50)
-        self.page_edit.returnPressed.connect(self.page_number_changed)
-        self.top_layout.addWidget(self.page_edit)
-        
-        self.total_page_label = QLabel("/ 0", self.top_frame)
-        self.top_layout.addWidget(self.total_page_label)
-        
+        # App-specific buttons (left side)
         self.open_button = QPushButton("Open PDF", self.top_frame)
         self.open_button.clicked.connect(self.open_pdf)
         self.top_layout.addWidget(self.open_button)
@@ -72,22 +54,42 @@ class PDFReader(QMainWindow):
         self.toggle_button.clicked.connect(self.toggle_mode)
         self.top_layout.addWidget(self.toggle_button)
         
-        self.top_layout.addStretch() # Pushes zoom controls to the right
+        # Add a stretch to push the central controls
+        self.top_layout.addStretch()
+
+        # Central controls (Page and Zoom)
+        # Page number controls
+        self.page_edit = QLineEdit("1", self.top_frame)
+        self.page_edit.setObjectName("page_input")
+        self.page_edit.setFixedWidth(50)
+        self.page_edit.returnPressed.connect(self.page_number_changed)
+        self.top_layout.addWidget(self.page_edit)
         
-        self.top_layout.addWidget(QLabel("Zoom:", self.top_frame))
+        self.total_page_label = QLabel("/ 0", self.top_frame)
+        self.top_layout.addWidget(self.total_page_label)
+        
+        self.top_layout.addWidget(self._create_separator()) # Add separator
+
+        # Zoom controls
+        self.minus_button = QPushButton("–", self.top_frame)
+        self.minus_button.setObjectName("small_button")
+        self.minus_button.clicked.connect(lambda: self.adjust_zoom(-20))
+        self.top_layout.addWidget(self.minus_button)
+        
         self.zoom_lineedit = QLineEdit("100", self.top_frame)
+        self.zoom_lineedit.setObjectName("zoom_input")
         self.zoom_lineedit.setFixedWidth(50)
         self.zoom_lineedit.setValidator(QIntValidator(20, 300, self))
         self.zoom_lineedit.returnPressed.connect(self.manual_zoom_changed)
         self.top_layout.addWidget(self.zoom_lineedit)
         
         self.plus_button = QPushButton("+", self.top_frame)
+        self.plus_button.setObjectName("small_button")
         self.plus_button.clicked.connect(lambda: self.adjust_zoom(20))
         self.top_layout.addWidget(self.plus_button)
         
-        self.minus_button = QPushButton("–", self.top_frame)
-        self.minus_button.clicked.connect(lambda: self.adjust_zoom(-20))
-        self.top_layout.addWidget(self.minus_button)
+        # Add a stretch to keep the central controls in the middle
+        self.top_layout.addStretch()
 
         # -----------------------------
         #         SEARCH BAR
@@ -101,6 +103,8 @@ class PDFReader(QMainWindow):
         self.search_input.setPlaceholderText("Search document...")
         self.search_input.returnPressed.connect(self._execute_search)
         self.search_layout.addWidget(self.search_input)
+        
+        self.search_layout.addWidget(self._create_separator()) # Add separator
 
         self.prev_button = QPushButton("Previous", self.search_frame)
         self.prev_button.clicked.connect(self._find_prev)
@@ -114,6 +118,7 @@ class PDFReader(QMainWindow):
         self.search_layout.addWidget(self.search_status_label)
         
         self.close_search_button = QPushButton("X", self.search_frame)
+        self.close_search_button.setObjectName("small_button")
         self.close_search_button.setFixedWidth(30)
         self.close_search_button.clicked.connect(self._hide_search_bar)
         self.search_layout.addWidget(self.close_search_button)
@@ -136,12 +141,19 @@ class PDFReader(QMainWindow):
         # -----------------------------
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.top_frame)
-        main_layout.addWidget(self.search_frame) # Add search bar here
+        main_layout.addWidget(self.search_frame)
         main_layout.addWidget(self.scroll_area)
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
-        
+
+    def _create_separator(self):
+        """Creates a vertical line separator."""
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        return separator
+
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts."""
         if event.matches(QKeySequence.Copy):
@@ -163,7 +175,7 @@ class PDFReader(QMainWindow):
     
     def copy_selected_text(self):
         """Copies the selected text from the current page to the clipboard."""
-        if self.doc is None or self.current_page_index not in self.loaded_pages:
+        if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
             QMessageBox.warning(self, "No Page Loaded", "Please load a PDF document first.")
             return
 
@@ -193,17 +205,13 @@ class PDFReader(QMainWindow):
             self.load_pdf(file_path)
     
     def load_pdf(self, file_path):
-        try:
-            self.doc = fitz.open(file_path)
-            self.total_pages = self.doc.page_count
-            self.total_page_label.setText(f"/ {self.total_pages}")
-            self.page_edit.setValidator(QIntValidator(1, self.total_pages, self))
-            self._clear_search() # Clear previous search results
+        success, total_pages = self.pdf_reader.load_pdf(file_path)
+        if success:
+            self.total_page_label.setText(f"/ {total_pages}")
+            self.page_edit.setValidator(QIntValidator(1, total_pages, self))
             self.clear_loaded_pages()
             self.page_height = None
             self.update_visible_pages()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error loading PDF: {e}")
     
     def clear_loaded_pages(self):
         """Remove all loaded page widgets."""
@@ -211,32 +219,8 @@ class PDFReader(QMainWindow):
             label.deleteLater()
         self.loaded_pages.clear()
     
-    def render_page(self, page_index):
-        try:
-            page = self.doc.load_page(page_index)
-            mat = fitz.Matrix(self.zoom, self.zoom)
-            
-            pix = page.get_pixmap(matrix=mat)
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
-            if self.dark_mode:
-                img.invertPixels()
-            pixmap = QPixmap.fromImage(img)
-            
-            text_data = page.get_text("dict", sort=True)
-            word_data = page.get_text("words", sort=True)
-
-            if self.page_height is None:
-                self.page_height = pixmap.height()
-                total_height = self.total_pages * (self.page_height + self.page_spacing) - self.page_spacing
-                self.page_container.setMinimumHeight(total_height)
-                
-            return pixmap, text_data, word_data
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error rendering page {page_index+1}: {e}")
-            return None, None, None
-    
     def update_visible_pages(self):
-        if self.doc is None or self.total_pages == 0:
+        if self.pdf_reader.doc is None or self.pdf_reader.total_pages == 0:
             return
 
         if self.page_height is None:
@@ -251,11 +235,11 @@ class PDFReader(QMainWindow):
             
         H = self.page_height + self.page_spacing
         current_page = round((scroll_val + viewport_height / 2 - self.page_height / 2) / H)
-        current_page = max(0, min(self.total_pages - 1, current_page))
+        current_page = max(0, min(self.pdf_reader.total_pages - 1, current_page))
         self.current_page_index = current_page
         
         start_index = max(0, current_page - 7)
-        end_index = min(self.total_pages - 1, current_page + 7)
+        end_index = min(self.pdf_reader.total_pages - 1, current_page + 7)
         
         for idx in list(self.loaded_pages.keys()):
             if idx < start_index or idx > end_index:
@@ -268,13 +252,14 @@ class PDFReader(QMainWindow):
 
     def _load_and_display_page(self, idx):
         """Loads, configures, and displays a single page widget."""
-        pix, text_data, word_data = self.render_page(idx)
+        pix, text_data, word_data = self.pdf_reader.render_page(idx, self.zoom, self.dark_mode)
         if pix:
             # Get search results for this specific page
-            rects_on_page = [r for p, r in self.search_results if p == idx]
+            search_results = self.pdf_reader.get_all_search_results()
+            rects_on_page = [r for p, r in search_results if p == idx]
             current_idx_on_page = -1
-            if self.current_search_index != -1 and self.search_results[self.current_search_index][0] == idx:
-                current_rect = self.search_results[self.current_search_index][1]
+            if self.pdf_reader.current_search_index != -1 and search_results[self.pdf_reader.current_search_index][0] == idx:
+                current_rect = search_results[self.pdf_reader.current_search_index][1]
                 if current_rect in rects_on_page:
                     current_idx_on_page = rects_on_page.index(current_rect)
 
@@ -285,6 +270,12 @@ class PDFReader(QMainWindow):
                 current_highlight_index=current_idx_on_page
             )
             label.setAlignment(Qt.AlignCenter)
+            
+            if self.page_height is None:
+                self.page_height = pix.height()
+                total_height = self.pdf_reader.total_pages * (self.page_height + self.page_spacing) - self.page_spacing
+                self.page_container.setMinimumHeight(total_height)
+            
             container_width = self.page_container.width()
             x = (container_width - pix.width()) // 2
             y = idx * (self.page_height + self.page_spacing)
@@ -299,7 +290,8 @@ class PDFReader(QMainWindow):
         viewport_height = self.scroll_area.viewport().height()
         H = self.page_height + self.page_spacing
         current_page = round((scroll_val + viewport_height / 2 - self.page_height / 2) / H)
-        current_page = max(0, min(self.total_pages - 1, current_page))
+        current_page = max(0, min(self.pdf_reader.total_pages - 1, current_page))
+        self.current_page_index = current_page
         if not self.page_edit.hasFocus():
             self.page_edit.setText(str(current_page + 1))
     
@@ -311,7 +303,7 @@ class PDFReader(QMainWindow):
         if self.page_height is None: return
         try:
             page_num = int(self.page_edit.text())
-            if 1 <= page_num <= self.total_pages:
+            if 1 <= page_num <= self.pdf_reader.total_pages:
                 target_y = (page_num - 1) * (self.page_height + self.page_spacing)
                 self.scroll_area.verticalScrollBar().setValue(target_y)
             else:
@@ -344,7 +336,7 @@ class PDFReader(QMainWindow):
             current_page_index, offset_in_page = self.get_current_page_info()
             self.zoom = (new_zoom_percent / 100.0) * self.base_zoom
             
-            if self.doc:
+            if self.pdf_reader.doc:
                 self.clear_loaded_pages()
                 self.page_height = None
                 self.update_visible_pages()
@@ -353,7 +345,7 @@ class PDFReader(QMainWindow):
                     new_scroll_pos = current_page_index * (self.page_height + self.page_spacing) + offset_in_page
                     self.scroll_area.verticalScrollBar().setValue(new_scroll_pos)
                     # If searching, re-jump to keep the highlighted result centered
-                    if self.search_results:
+                    if self.pdf_reader.search_results:
                         self._jump_to_current_search_result()
                 
         except (ValueError, IndexError):
@@ -363,7 +355,7 @@ class PDFReader(QMainWindow):
     def toggle_mode(self):
         self.dark_mode = not self.dark_mode
         self.apply_style()
-        if self.doc:
+        if self.pdf_reader.doc:
             current_page_index, offset_in_page = self.get_current_page_info()
             self.clear_loaded_pages()
             self.page_height = None
@@ -388,60 +380,42 @@ class PDFReader(QMainWindow):
     def _execute_search(self):
         """Performs a new search across the entire document."""
         search_term = self.search_input.text()
-        if not search_term:
-            self._clear_search()
-            return
-
-        # If the search term is new, perform a full search
-        if search_term != self.current_search_term:
-            self.current_search_term = search_term
-            self.search_results = []
-            for i in range(self.total_pages):
-                page = self.doc.load_page(i)
-                results_on_page = page.search_for(search_term, quads=False)
-                for rect in results_on_page:
-                    self.search_results.append((i, rect))
-            
-            self.current_search_index = -1
-            if not self.search_results:
-                self.search_status_label.setText("0 results")
-                self._update_all_page_highlights()
-                return
-
-        self._find_next()
+        num_results = self.pdf_reader.execute_search(search_term)
+        
+        if num_results > 0:
+            self._find_next()
+        else:
+            self.search_status_label.setText("0 results")
+            self._update_all_page_highlights()
 
     def _find_next(self):
         """Jumps to the next search result."""
-        if not self.search_results: return
-        self.current_search_index = (self.current_search_index + 1) % len(self.search_results)
+        self.pdf_reader.next_search_result()
         self._jump_to_current_search_result()
 
     def _find_prev(self):
         """Jumps to the previous search result."""
-        if not self.search_results: return
-        self.current_search_index = (self.current_search_index - 1 + len(self.search_results)) % len(self.search_results)
+        self.pdf_reader.prev_search_result()
         self._jump_to_current_search_result()
 
     def _jump_to_current_search_result(self):
         """Scrolls to and highlights the current search result."""
-        if self.current_search_index == -1 or self.page_height is None: return
+        page_idx, rect = self.pdf_reader.get_search_result_info()
+        if page_idx is None or self.page_height is None:
+            return
 
-        page_idx, rect = self.search_results[self.current_search_index]
-        
         # Center the result in the viewport
         scroll_offset = self.scroll_area.height() / 2 - (rect.height * self.zoom) / 2
         target_y = (page_idx * (self.page_height + self.page_spacing)) + (rect.y0 * self.zoom) - scroll_offset
         
         self.scroll_area.verticalScrollBar().setValue(int(target_y))
         
-        self.search_status_label.setText(f"{self.current_search_index + 1} of {len(self.search_results)}")
+        self.search_status_label.setText(f"{self.pdf_reader.current_search_index + 1} of {len(self.pdf_reader.search_results)}")
         self._update_all_page_highlights()
 
     def _clear_search(self):
         """Resets the search state and removes all highlights."""
-        self.search_results = []
-        self.current_search_index = -1
-        self.current_search_term = ""
+        self.pdf_reader._clear_search() # Call the private method on the data object
         self.search_input.clear()
         self.search_status_label.setText("")
         self._update_all_page_highlights()
@@ -449,10 +423,11 @@ class PDFReader(QMainWindow):
     def _update_all_page_highlights(self):
         """Updates search highlights on all currently loaded pages."""
         for idx, label in self.loaded_pages.items():
-            rects_on_page = [r for p, r in self.search_results if p == idx]
+            search_results = self.pdf_reader.get_all_search_results()
+            rects_on_page = [r for p, r in search_results if p == idx]
             current_idx_on_page = -1
-            if self.current_search_index != -1:
-                current_page, current_rect = self.search_results[self.current_search_index]
+            if self.pdf_reader.current_search_index != -1:
+                current_page, current_rect = search_results[self.pdf_reader.current_search_index]
                 if current_page == idx and current_rect in rects_on_page:
                     current_idx_on_page = rects_on_page.index(current_rect)
             

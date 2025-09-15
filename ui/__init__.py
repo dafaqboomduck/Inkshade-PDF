@@ -1,1 +1,1 @@
-from .pdf_reader import PDFReader
+from .pdf_reader_view import PDFReader
