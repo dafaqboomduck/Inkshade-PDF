@@ -14,6 +14,8 @@ def main():
         file_path = sys.argv[1]
         
     window = PDFReader(file_path)
+    window.setup_ui()
+    window.apply_style()
     window.showMaximized()
     sys.exit(app.exec_())
 
