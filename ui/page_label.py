@@ -176,9 +176,9 @@ class ClickablePageLabel(QLabel):
         # 1. Draw search highlights (underneath text selection)
         if self.search_highlights:
             if self.dark_mode:
-                general_highlight_color = QColor(100, 160, 255, 100)
+                general_highlight_color = QColor(255, 255, 0, 100) # Semi-transparent yellow for dark mode
             else:
-                general_highlight_color = QColor(255, 230, 0, 150)
+                general_highlight_color = QColor(76, 91, 154, 150) # Semi-transparent blue for light mode
 
             for i, rect in enumerate(self.search_highlights):
                 highlight_rect = QRectF(
@@ -195,9 +195,9 @@ class ClickablePageLabel(QLabel):
         if self.selection_rects:
             painter.setPen(Qt.NoPen)
             if self.dark_mode:
-                painter.setBrush(QColor(76, 91, 154, 150))
+                painter.setBrush(QColor(255, 255, 0, 100))
             else:
-                painter.setBrush(QColor(76, 91, 154, 100))
+                painter.setBrush(QColor(76, 91, 154, 150))
             for rect in self.selection_rects:
                 painter.drawRect(rect)
         
