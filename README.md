@@ -1,6 +1,6 @@
 # Inkshade PDF Reader
 
-A modern and intuitive desktop PDF reader built with Python and PyQt5, featuring advanced text selection and a sleek user interface.
+A modern and intuitive desktop PDF reader built with Python and PyQt5, featuring a eye-friendly dark mode, advanced text selection and searching, and a sleek user interface.
 
 ## Features
 
