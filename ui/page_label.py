@@ -185,22 +185,21 @@ class ClickablePageLabel(QLabel):
         painter.setRenderHint(QPainter.Antialiasing)
 
         # 1. Draw search highlights (underneath text selection)
-        if self.search_highlights:
+        if 0 <= self.current_search_highlight_index < len(self.search_highlights):
+            current_rect = self.search_highlights[self.current_search_highlight_index]
+            current_highlight_rect = QRectF(
+                current_rect.x0 * self.zoom_level,
+                current_rect.y0 * self.zoom_level,
+                current_rect.width * self.zoom_level,
+                current_rect.height * self.zoom_level
+            )
+            # Brighter, more distinct color for the current highlight
             if self.dark_mode:
-                general_highlight_color = QColor(255, 255, 0, 100) # Semi-transparent yellow for dark mode
+                current_highlight_color = QColor(255, 255, 0, 100) # Brighter yellow
             else:
-                general_highlight_color = QColor(76, 91, 154, 150) # Semi-transparent blue for light mode
+                current_highlight_color = QColor(76, 91, 154, 150) # Opaque blue
+            painter.fillRect(current_highlight_rect, QBrush(current_highlight_color))
 
-            for i, rect in enumerate(self.search_highlights):
-                highlight_rect = QRectF(
-                    rect.x0 * self.zoom_level,
-                    rect.y0 * self.zoom_level,
-                    rect.width * self.zoom_level,
-                    rect.height * self.zoom_level
-                )
-                
-                brush_color = general_highlight_color
-                painter.fillRect(highlight_rect, QBrush(brush_color))
 
         # 2. Draw text selection highlights
         if self.selection_rects:
