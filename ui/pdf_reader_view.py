@@ -170,7 +170,7 @@ class PDFReader(QMainWindow):
         
         if selected_text:
             pyperclip.copy(selected_text)
-            QMessageBox.information(self, "Success", "Selected text copied to clipboard!")
+            # QMessageBox.information(self, "Success", "Selected text copied to clipboard!")
         else:
             QMessageBox.information(self, "No Selection", "No text has been selected on the current page.")
             
