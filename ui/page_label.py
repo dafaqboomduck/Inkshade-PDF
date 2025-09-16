@@ -132,9 +132,15 @@ class ClickablePageLabel(QLabel):
         self.selection_rects = self._get_merged_selection_rects()
 
     def _get_merged_selection_rects(self):
+        """
+        Generates non-overlapping selection rectangles for each line containing
+        selected words, using a calculated average line height to ensure no
+        vertical overlap between lines.
+        """
         if not self.selected_words:
             return []
         
+        # Group selected words by line
         lines_to_highlight = {}
         for word_info in self.selected_words:
             key = (word_info[5], word_info[6])
@@ -142,31 +148,36 @@ class ClickablePageLabel(QLabel):
                 lines_to_highlight[key] = []
             lines_to_highlight[key].append(word_info)
             
-        merged_rects = []
-        for words_in_line in lines_to_highlight.values():
+        # Calculate an average line height from all lines with words
+        all_line_heights = []
+        for line_key, words_in_line in self.line_word_map.items():
+            if not words_in_line:
+                continue
+            min_y = min(word[1] for word in words_in_line)
+            max_y = max(word[3] for word in words_in_line)
+            all_line_heights.append(max_y - min_y)
+            
+        avg_line_height = sum(all_line_heights) / len(all_line_heights) if all_line_heights else 0
+        
+        selection_rects = []
+        for line_key, words_in_line in lines_to_highlight.items():
             if not words_in_line:
                 continue
             
-            sorted_words = sorted(words_in_line, key=lambda x: x[0])
-            
-            line_bbox = sorted_words[0][:4]
-            for word in sorted_words[1:]:
-                line_bbox = (
-                    min(line_bbox[0], word[0]),
-                    min(line_bbox[1], word[1]),
-                    max(line_bbox[2], word[2]),
-                    max(line_bbox[3], word[3])
-                )
+            # Find the min x, max x, and first y of all words in the line
+            min_x = min(word[0] for word in words_in_line)
+            max_x = max(word[2] for word in words_in_line)
+            first_word_y = words_in_line[0][1]
             
             line_rect = QRectF(
-                line_bbox[0] * self.zoom_level,
-                line_bbox[1] * self.zoom_level,
-                (line_bbox[2] - line_bbox[0]) * self.zoom_level,
-                (line_bbox[3] - line_bbox[1]) * self.zoom_level
+                min_x * self.zoom_level,
+                first_word_y * self.zoom_level,
+                (max_x - min_x) * self.zoom_level,
+                avg_line_height * self.zoom_level
             ).toRect()
-            merged_rects.append(line_rect)
+            selection_rects.append(line_rect)
         
-        return merged_rects
+        return selection_rects
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -204,7 +215,7 @@ class ClickablePageLabel(QLabel):
         painter.end()
     
     def get_selection_rects(self):
-        return self._get_merged_selection_rects()
+        return self.selection_rects
     
     def get_selected_text(self):
         if not self.selected_words:
