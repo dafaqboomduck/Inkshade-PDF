@@ -134,13 +134,12 @@ class ClickablePageLabel(QLabel):
     def _get_merged_selection_rects(self):
         """
         Generates non-overlapping selection rectangles for each line containing
-        selected words, using a calculated average line height to ensure no
-        vertical overlap between lines.
+        selected words. The height of each rectangle is based on the height
+        of the first word in that line.
         """
         if not self.selected_words:
             return []
         
-        # Group selected words by line
         lines_to_highlight = {}
         for word_info in self.selected_words:
             key = (word_info[5], word_info[6])
@@ -148,32 +147,28 @@ class ClickablePageLabel(QLabel):
                 lines_to_highlight[key] = []
             lines_to_highlight[key].append(word_info)
             
-        # Calculate an average line height from all lines with words
-        all_line_heights = []
-        for line_key, words_in_line in self.line_word_map.items():
-            if not words_in_line:
-                continue
-            min_y = min(word[1] for word in words_in_line)
-            max_y = max(word[3] for word in words_in_line)
-            all_line_heights.append(max_y - min_y)
-            
-        avg_line_height = sum(all_line_heights) / len(all_line_heights) if all_line_heights else 0
-        
         selection_rects = []
         for line_key, words_in_line in lines_to_highlight.items():
             if not words_in_line:
                 continue
             
-            # Find the min x, max x, and first y of all words in the line
+            # Sort words in line by horizontal position (x-coordinate)
+            words_in_line.sort(key=lambda x: x[0])
+            
+            # Find the min x, max x, and first word's y coordinates
             min_x = min(word[0] for word in words_in_line)
             max_x = max(word[2] for word in words_in_line)
-            first_word_y = words_in_line[0][1]
+            
+            # Use the first word's bounding box to determine the line height
+            first_word_y0 = words_in_line[0][1]
+            first_word_y1 = words_in_line[0][3]
+            line_height = first_word_y1 - first_word_y0
             
             line_rect = QRectF(
                 min_x * self.zoom_level,
-                first_word_y * self.zoom_level,
+                first_word_y0 * self.zoom_level,
                 (max_x - min_x) * self.zoom_level,
-                avg_line_height * self.zoom_level
+                line_height * self.zoom_level
             ).toRect()
             selection_rects.append(line_rect)
         
@@ -193,11 +188,10 @@ class ClickablePageLabel(QLabel):
                 current_rect.width * self.zoom_level,
                 current_rect.height * self.zoom_level
             )
-            # Brighter, more distinct color for the current highlight
             if self.dark_mode:
-                current_highlight_color = QColor(255, 255, 0, 100) # Brighter yellow
+                current_highlight_color = QColor(255, 255, 0, 100)
             else:
-                current_highlight_color = QColor(76, 91, 154, 150) # Opaque blue
+                current_highlight_color = QColor(76, 91, 154, 150)
             painter.fillRect(current_highlight_rect, QBrush(current_highlight_color))
 
 
