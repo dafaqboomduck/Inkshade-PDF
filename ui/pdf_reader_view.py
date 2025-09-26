@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
 import pyperclip
 import os
 from core.pdf_reader import PDFDocumentReader
+from core.user_input import UserInputHandler
 from ui.page_label import ClickablePageLabel
 from styles import apply_style
 
@@ -24,6 +25,8 @@ class PDFReader(QMainWindow):
         self.page_height = None
         self.loaded_pages = {}
         self.current_page_index = 0
+
+        self.input_handler = UserInputHandler(self)
 
         self.setup_ui()
         self.apply_style()
@@ -144,18 +147,7 @@ class PDFReader(QMainWindow):
         self.setCentralWidget(container)
 
     def keyPressEvent(self, event):
-        if event.matches(QKeySequence.Copy):
-            self.copy_selected_text()
-            event.accept()
-        elif event.matches(QKeySequence.Find):
-            self._show_search_bar()
-            event.accept()
-        elif event.key() == Qt.Key_Escape:
-            if self.search_frame.isVisible():
-                self._hide_search_bar()
-                event.accept()
-        else:
-            super().keyPressEvent(event)
+        self.input_handler.handle_key_press(event)
 
     def apply_style(self):
         apply_style(self, self.dark_mode)
