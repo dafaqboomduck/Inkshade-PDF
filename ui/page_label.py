@@ -80,7 +80,7 @@ class ClickablePageLabel(QLabel):
             if self.dark_mode:
                 current_highlight_color = QColor(255, 255, 0, 100)
             else:
-                current_highlight_color = QColor(76, 91, 154, 150)
+                current_highlight_color = QColor(0, 89, 195, 100)
             painter.fillRect(current_highlight_rect, QBrush(current_highlight_color))
 
 
@@ -90,7 +90,7 @@ class ClickablePageLabel(QLabel):
             if self.dark_mode:
                 painter.setBrush(QColor(255, 255, 0, 100))
             else:
-                painter.setBrush(QColor(76, 91, 154, 150))
+                painter.setBrush(QColor(0, 89, 195, 100))
             for rect in self.selection_rects:
                 painter.drawRect(rect)
         
