@@ -1,6 +1,7 @@
 from PyQt5.QtCore import Qt, QRect, QRectF
 from PyQt5.QtGui import QPainter, QColor, QBrush
 from PyQt5.QtWidgets import QLabel
+from core.user_input import UserInputHandler
 
 # Custom widget to display a page image and handle text selection
 class ClickablePageLabel(QLabel):
@@ -20,6 +21,8 @@ class ClickablePageLabel(QLabel):
         
         self.search_highlights = []
         self.current_search_highlight_index = -1
+
+        self.input_handler = UserInputHandler(parent)
 
     def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode, search_highlights=None, current_highlight_index=-1):
         self.setPixmap(pixmap)
@@ -52,127 +55,13 @@ class ClickablePageLabel(QLabel):
                 self.line_word_map[key].append(word_info)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            word_at_pos = self._get_word_at_pos(event.pos())
-            
-            if not word_at_pos and not (event.modifiers() & Qt.ControlModifier):
-                self.selected_words.clear()
-                self.selection_rects = []
-                self.start_pos = None
-                self.end_pos = None
-                self.update()
-                return
-
-            self.start_pos = event.pos()
-            self.end_pos = None
-            self._selection_at_start = self.selected_words.copy()
-            self.update()
+        self.input_handler.handle_page_label_mouse_press(self, event)
 
     def mouseMoveEvent(self, event):
-        if event.buttons() & Qt.LeftButton and self.word_data and self.start_pos:
-            self.end_pos = event.pos()
-            self._update_selection(event.modifiers())
-            self.update()
+        self.input_handler.handle_page_label_mouse_move(self, event)
         
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self.word_data and self.start_pos:
-            self.end_pos = event.pos()
-            self._update_selection(event.modifiers())
-            self.update()
-
-    def _get_word_at_pos(self, pos):
-        if not self.word_data or not pos:
-            return None
-        
-        for word_info in self.word_data:
-            bbox = word_info[:4]
-            word_rect = QRectF(
-                bbox[0] * self.zoom_level,
-                bbox[1] * self.zoom_level,
-                (bbox[2] - bbox[0]) * self.zoom_level,
-                (bbox[3] - bbox[1]) * self.zoom_level
-            ).toRect()
-            
-            if word_rect.contains(pos):
-                return word_info
-        return None
-
-    def _update_selection(self, modifiers):
-        if not self.start_pos or not self.end_pos or not self.word_data:
-            return
-
-        drag_rect = QRect(self.start_pos, self.end_pos).normalized()
-        all_words_in_order = sorted(self.word_data, key=lambda x: (x[5], x[6], x[7]))
-
-        start_word = self._get_word_at_pos(self.start_pos)
-        end_word = self._get_word_at_pos(self.end_pos)
-
-        if not start_word or not end_word:
-            self.selection_rects = self._get_merged_selection_rects()
-            return
-        
-        start_index = all_words_in_order.index(start_word)
-        end_index = all_words_in_order.index(end_word)
-        
-        min_index = min(start_index, end_index)
-        max_index = max(start_index, end_index)
-
-        words_in_drag = set(all_words_in_order[min_index:max_index + 1])
-        
-        if modifiers & Qt.ControlModifier:
-            self.selected_words = self._selection_at_start.symmetric_difference(words_in_drag)
-        else:
-            is_starting_from_selected = start_word in self._selection_at_start
-            
-            if is_starting_from_selected:
-                self.selected_words = self._selection_at_start.difference(words_in_drag)
-            else:
-                self.selected_words = words_in_drag
-
-        self.selection_rects = self._get_merged_selection_rects()
-
-    def _get_merged_selection_rects(self):
-        """
-        Generates non-overlapping selection rectangles for each line containing
-        selected words. The height of each rectangle is based on the height
-        of the first word in that line.
-        """
-        if not self.selected_words:
-            return []
-        
-        lines_to_highlight = {}
-        for word_info in self.selected_words:
-            key = (word_info[5], word_info[6])
-            if key not in lines_to_highlight:
-                lines_to_highlight[key] = []
-            lines_to_highlight[key].append(word_info)
-            
-        selection_rects = []
-        for line_key, words_in_line in lines_to_highlight.items():
-            if not words_in_line:
-                continue
-            
-            # Sort words in line by horizontal position (x-coordinate)
-            words_in_line.sort(key=lambda x: x[0])
-            
-            # Find the min x, max x, and first word's y coordinates
-            min_x = min(word[0] for word in words_in_line)
-            max_x = max(word[2] for word in words_in_line)
-            
-            # Use the first word's bounding box to determine the line height
-            first_word_y0 = words_in_line[0][1]
-            first_word_y1 = words_in_line[0][3]
-            line_height = first_word_y1 - first_word_y0
-            
-            line_rect = QRectF(
-                min_x * self.zoom_level,
-                first_word_y0 * self.zoom_level,
-                (max_x - min_x) * self.zoom_level,
-                line_height * self.zoom_level
-            ).toRect()
-            selection_rects.append(line_rect)
-        
-        return selection_rects
+        self.input_handler.handle_page_label_mouse_release(self, event)
 
     def paintEvent(self, event):
         super().paintEvent(event)
