@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtWidgets import QApplication
-from ui import PDFReader
+from ui import MainWindow
 
 def main():
     """
@@ -13,7 +13,7 @@ def main():
     if len(sys.argv) > 1:
         file_path = sys.argv[1]
         
-    window = PDFReader(file_path)
+    window = MainWindow(file_path)
     window.showMaximized()
     sys.exit(app.exec_())
 

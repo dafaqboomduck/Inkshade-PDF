@@ -1,1 +1,1 @@
-from .pdf_reader_view import PDFReader
+from .main_window import MainWindow
