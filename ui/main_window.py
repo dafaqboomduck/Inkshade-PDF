@@ -1,8 +1,10 @@
+from PyQt5.QtCore import QTimer # Import QTimer
 from PyQt5.QtGui import QIntValidator
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame,
-    QMessageBox, QSpacerItem, QSizePolicy
+    QMessageBox, QSpacerItem, QSizePolicy,
+    QApplication # Import QApplication for processEvents
 )
 import pyperclip
 import os
@@ -39,8 +41,6 @@ class MainWindow(QMainWindow): # Renamed for clarity
             self.load_pdf(file_path)
 
     def setup_ui(self):
-        # ... (TOP TOOLBAR SETUP REMAINS THE SAME) ...
-
         # -----------------------------
         #         TOP TOOLBAR
         # -----------------------------
@@ -131,9 +131,6 @@ class MainWindow(QMainWindow): # Renamed for clarity
         #      PAGE DISPLAY AREA
         # -----------------------------
         self.page_container = QWidget()
-        # self.page_container.setMinimumHeight(0) # Moved to PDFPageManager
-        # self.page_container.resizeEvent = self.container_resize_event # Moved to PDFPageManager
-        
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setWidget(self.page_container)
@@ -177,11 +174,9 @@ class MainWindow(QMainWindow): # Renamed for clarity
         
         if selected_text:
             pyperclip.copy(selected_text)
-            # QMessageBox.information(self, "Success", "Selected text copied to clipboard!")
         else:
             QMessageBox.information(self, "No Selection", "No text has been selected on the current page.")
             
-    # REMOVED: container_resize_event - now in PDFPageManager
     
     def open_pdf(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
@@ -199,15 +194,18 @@ class MainWindow(QMainWindow): # Renamed for clarity
             self.current_page_index = 0
             self.update_visible_pages()
     
-    # REMOVED: clear_loaded_pages - logic moved to page_manager.clear_all()
-    
-    def update_visible_pages(self):
-        """Delegates the page loading/unloading to the manager."""
-        current_page = self.page_manager.get_current_page_index()
+    def update_visible_pages(self, desired_page=None):
+        """Delegates the page loading/unloading to the manager.
+
+        If desired_page is provided, use it (important when page_height is None).
+        """
+        if desired_page is None:
+            current_page = self.page_manager.get_current_page_index()
+        else:
+            current_page = int(desired_page)
+
         self.current_page_index = current_page
         self.page_manager.update_visible_pages(current_page)
-
-    # REMOVED: _load_and_display_page - now in PDFPageManager
 
     def update_current_page_display(self):
         """Updates the page number input field."""
@@ -244,6 +242,19 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.zoom_lineedit.setText(str(new_zoom_percent))
         self._handle_zoom_change(new_zoom_percent)
 
+    # Helper function for delayed scroll restoration
+    def _restore_scroll_position(self, current_page_index, offset_in_page):
+        if self.page_height:
+            # 1. Jump to the beginning of the page
+            self.page_manager.jump_to_page(current_page_index + 1) 
+            
+            # 2. Add the offset (relative to the start of the page)
+            current_y = self.scroll_area.verticalScrollBar().value()
+            self.scroll_area.verticalScrollBar().setValue(int(current_y + offset_in_page))
+            
+            if self.pdf_reader.search_results:
+                self._jump_to_current_search_result()
+
     def _handle_zoom_change(self, new_zoom_percent):
         try:
             current_page_index, offset_in_page = self.get_current_page_info()
@@ -257,14 +268,16 @@ class MainWindow(QMainWindow): # Renamed for clarity
                 self.page_manager.clear_all()
                 self.update_visible_pages() # This will calculate new self.page_height
                 
-                # 3. Restore scroll position
-                if self.page_height:
-                    # New scroll position is based on the old index and offset,
-                    # but using the new page height.
-                    new_scroll_pos = current_page_index * (self.page_height + self.page_spacing) + offset_in_page
-                    self.scroll_area.verticalScrollBar().setValue(new_scroll_pos)
-                    if self.pdf_reader.search_results:
-                        self._jump_to_current_search_result()
+                # FIX 1: Force immediate event processing for initial layout/positioning
+                QApplication.processEvents()
+                
+                # FIX 2: Explicitly update the container's geometry to force scroll range calculation
+                self.page_container.updateGeometry()
+                self.scroll_area.updateGeometry()
+                QApplication.processEvents() # Process any new geometry updates
+                
+                # FIX 3: Restore scroll position with a 10ms delay to ensure all painting is done.
+                QTimer.singleShot(10, lambda: self._restore_scroll_position(current_page_index, offset_in_page))
                 
         except (ValueError, IndexError):
             current_zoom_percent = int((self.zoom / self.base_zoom) * 100)
@@ -274,16 +287,30 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.dark_mode = not self.dark_mode
         self.apply_style()
         self.page_manager.set_dark_mode(self.dark_mode)
-        
+
         if self.pdf_reader.doc:
+            # capture where we were BEFORE clearing pages
             current_page_index, offset_in_page = self.get_current_page_info()
-            
+
+            # clear pages and force reload *centered on the saved current page*
             self.page_manager.clear_all()
-            self.update_visible_pages() # This re-renders and sets new self.page_height
-            
-            if self.page_height:
-                new_scroll_pos = current_page_index * (self.page_height + self.page_spacing) + offset_in_page
-                self.scroll_area.verticalScrollBar().setValue(new_scroll_pos)
+            self.update_visible_pages(desired_page=current_page_index)
+
+            # Defer scroll restoration until layout/paint has a chance to run
+            def _restore():
+                # restore exact scroll position (uses your helper)
+                self._restore_scroll_position(current_page_index, offset_in_page)
+
+                # force a repaint of the visible label + viewport
+                lbl = self.loaded_pages.get(self.current_page_index)
+                if lbl:
+                    lbl.repaint()
+                self.page_container.repaint()
+                self.scroll_area.viewport().repaint()
+
+            QTimer.singleShot(0, _restore)
+
+
 
     # --- SEARCH METHODS ---
 
@@ -328,5 +355,3 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.search_input.clear()
         self.search_status_label.setText("")
         self.page_manager.update_page_highlights() # Use manager for update
-
-    # REMOVED: _update_all_page_highlights - logic moved to page_manager.update_page_highlights()
