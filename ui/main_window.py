@@ -191,7 +191,12 @@ class MainWindow(QMainWindow): # Renamed for clarity
             self.file_name_label.setText(os.path.basename(file_path))
             
             self.page_manager.clear_all()
-            self.current_page_index = 0
+            
+            # 1. Reset the scroll bar to the top (position 0)
+            self.scroll_area.verticalScrollBar().setValue(0)
+            
+            # 2. Ensure the current page index state matches the scroll bar
+            self.current_page_index = 0            
             self.update_visible_pages()
     
     def update_visible_pages(self, desired_page=None):
@@ -199,10 +204,15 @@ class MainWindow(QMainWindow): # Renamed for clarity
 
         If desired_page is provided, use it (important when page_height is None).
         """
-        if desired_page is None:
-            current_page = self.page_manager.get_current_page_index()
-        else:
+        if desired_page is not None:
             current_page = int(desired_page)
+        elif self.page_height is None:
+            # If the layout is uninitialized (i.e., new PDF or zoom/toggle clear), 
+            # use the stored page index (which is 0 after a new load).
+            current_page = self.current_page_index 
+        else:
+            # Otherwise, use the scroll position to determine the current page.
+            current_page = self.page_manager.get_current_page_index()
 
         self.current_page_index = current_page
         self.page_manager.update_visible_pages(current_page)
