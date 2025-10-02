@@ -54,13 +54,14 @@ class PDFViewer:
         if self.pdf_reader_core.doc is None or self.pdf_reader_core.total_pages == 0:
             return
 
-        # Load the first page to get the initial page_height if not set
+        # Ensure the *current* page is loaded first, not just page 0
         if self.page_height is None:
-            if 0 not in self.loaded_pages:
-                self._load_and_display_page(0)
-                if self.page_height is None: # Safety check if loading failed
+            # Load the page the caller indicated (current_page_index), not always 0
+            if current_page_index not in self.loaded_pages:
+                self._load_and_display_page(current_page_index)
+                if self.page_height is None:  # safety if render failed
                     return
-        
+                
         total_pages = self.pdf_reader_core.total_pages
         # Load a window of 15 pages around the current page (7 before, current, 7 after)
         start_index = max(0, current_page_index - 7)
@@ -85,7 +86,8 @@ class PDFViewer:
             search_results = self.pdf_reader_core.get_all_search_results()
             rects_on_page = [r for p, r in search_results if p == idx]
             current_idx_on_page = -1
-            if self.pdf_reader_core.current_search_index != -1 and search_results[self.pdf_reader_core.current_search_index][0] == idx:
+            if (self.pdf_reader_core.current_search_index != -1 
+                and search_results[self.pdf_reader_core.current_search_index][0] == idx):
                 current_rect = search_results[self.pdf_reader_core.current_search_index][1]
                 if current_rect in rects_on_page:
                     current_idx_on_page = rects_on_page.index(current_rect)
@@ -98,20 +100,26 @@ class PDFViewer:
             )
             label.setAlignment(Qt.AlignCenter)
             
-            # Set minimum height for the page container on first page load
             if self.page_height is None:
                 self.page_height = pix.height()
-                total_height = self.pdf_reader_core.total_pages * (self.page_height + self.page_spacing) - self.page_spacing
+                total_height = (self.pdf_reader_core.total_pages * 
+                                (self.page_height + self.page_spacing) - self.page_spacing)
                 self.page_container.setMinimumHeight(total_height)
-                # Inform the main window about the new page height
                 self.main_window.page_height = self.page_height 
             
-            # Position the page label
             container_width = self.page_container.width()
             x = (container_width - pix.width()) // 2
             y = idx * (self.page_height + self.page_spacing)
             label.setGeometry(x, y, pix.width(), pix.height())
             label.show()
+
+            # Force immediate paint for the newly created label so it's visible
+            label.update()
+            label.repaint()
+            # also nudge container and viewport
+            self.page_container.update()
+            self.scroll_area.viewport().update()
+
             self.loaded_pages[idx] = label
 
     def get_current_page_index(self):
