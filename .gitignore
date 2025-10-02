@@ -2,9 +2,8 @@ __pycache__/
 dist/
 build/
 
-Inkshade PDF.lnk
-InkshadePDF.rc
-InkshadePDF.res
 InkshadePDF.spec
 requirements.txt
 installer.nsi
+versionfile.txt
+pyinstaller_versionfile.py
