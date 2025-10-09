@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QTimer # Import QTimer
-from PyQt5.QtGui import QIntValidator
+from PyQt5.QtGui import QIntValidator, QIcon
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame,
@@ -13,11 +13,17 @@ from core.user_input import UserInputHandler
 # from ui.page_label import ClickablePageLabel # Not directly needed here anymore
 from styles import apply_style
 from ui.pdf_view import PDFViewer # Import the new class
+from helpers.locate_resources import get_resource_path
 
 class MainWindow(QMainWindow): # Renamed for clarity
     def __init__(self, file_path=None):
         super().__init__()
-        self.setWindowTitle("PDF Reader")
+
+        # Use the helper function to get the correct absolute path
+        icon_path = get_resource_path("resources\icons\inkshade.ico")
+        
+        self.setWindowIcon(QIcon(icon_path))
+        self.setWindowTitle("Inkshade PDF")
         
         # Core PDF reading utility
         self.pdf_reader = PDFDocumentReader()
