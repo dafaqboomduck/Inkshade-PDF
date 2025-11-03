@@ -17,7 +17,7 @@ You can get started with Inkshade PDF in a few different ways.
 
 ### For Windows users
 
-[Download the InkshadePDF-Installer.exe](https://github.com/dafaqboomduck/Inkshade-PDF/releases/download/v.1.1.0-alpha/InkshadePDF-Installer.exe) file and double-click to run the installation process. After installation, you can find the application by searching for "Inkshade PDF" in the Windows search tool.
+[Download the InkshadePDF-Installer.exe](https://github.com/dafaqboomduck/Inkshade-PDF/releases/download/v.1.1.0/InkshadePDF-Installer.exe) file and double-click to run the installation process. After installation, you can find the application by searching for "Inkshade PDF" in the Windows search tool.
 
 ### ⚠️ Antivirus Flagging Warning
 Some antivirus (AV) vendors may flag this application as malicious. This is a common issue with applications packaged using tools like PyInstaller. The code is compiled directly from the publicly available source in the repository and is completely safe to use.
