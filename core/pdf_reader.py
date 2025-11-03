@@ -18,7 +18,8 @@ class PDFDocumentReader:
             self.total_pages = self.doc.page_count
             self._clear_search()
 
-            self.toc = self.doc.get_toc()
+            # Get detailed TOC with positioning info
+            self.toc = self.doc.get_toc(False)
 
             return True, self.total_pages
         except Exception as e:
@@ -116,7 +117,7 @@ class PDFDocumentReader:
         return merged_results
     
     def get_toc(self):
-        """Returns the parsed table of contents."""
+        """Returns the parsed table of contents with detailed positioning info."""
         return self.toc
 
     def execute_search(self, search_term):
@@ -148,7 +149,7 @@ class PDFDocumentReader:
                     self.search_results.append((i, rect))
             
             self.current_search_index = -1
-            
+            print((i, rect))
         return len(self.search_results)
 
     def get_search_result_info(self):

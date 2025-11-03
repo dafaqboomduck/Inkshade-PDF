@@ -81,7 +81,7 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.top_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
 
         # Zoom controls
-        self.minus_button = QPushButton("–", self.top_frame)
+        self.minus_button = QPushButton("−", self.top_frame)
         self.minus_button.setObjectName("small_button")
         self.minus_button.clicked.connect(lambda: self.adjust_zoom(-20))
         self.top_layout.addWidget(self.minus_button)
@@ -163,8 +163,8 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.addDockWidget(Qt.LeftDockWidgetArea, self.toc_dock)
         self.toc_dock.hide() # Start hidden
         
-        # Connect the TOC link signal to the jump logic
-        self.toc_widget.toc_link_clicked.connect(self.page_manager.jump_to_page)
+        # Connect the TOC link signal to the handler that uses precise positioning
+        self.toc_widget.toc_link_clicked.connect(self._handle_toc_click)
 
         # New: Add a button to the Top Toolbar to show/hide the TOC
         self.toc_button = QPushButton("TOC", self.top_frame)
@@ -183,6 +183,11 @@ class MainWindow(QMainWindow): # Renamed for clarity
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
+
+    def _handle_toc_click(self, page_num, y_pos):
+        """Handle TOC item clicks with precise positioning."""
+        print(f"DEBUG TOC Click - Page: {page_num}, Y-pos: {y_pos}, Zoom: {self.zoom}")
+        self.page_manager.jump_to_page(page_num, y_pos)
 
     def keyPressEvent(self, event):
         self.input_handler.handle_key_press(event)
