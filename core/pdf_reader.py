@@ -9,6 +9,7 @@ class PDFDocumentReader:
         self.search_results = []
         self.current_search_index = -1
         self.current_search_term = ""
+        self.toc = []
 
     def load_pdf(self, file_path):
         """Loads a PDF document and returns the number of pages."""
@@ -16,6 +17,9 @@ class PDFDocumentReader:
             self.doc = fitz.open(file_path)
             self.total_pages = self.doc.page_count
             self._clear_search()
+
+            self.toc = self.doc.get_toc()
+
             return True, self.total_pages
         except Exception as e:
             QMessageBox.critical(None, "Error", f"Error loading PDF: {e}")
@@ -110,6 +114,10 @@ class PDFDocumentReader:
             merged_results.append(current_merged_rect)
             
         return merged_results
+    
+    def get_toc(self):
+        """Returns the parsed table of contents."""
+        return self.toc
 
     def execute_search(self, search_term):
         """

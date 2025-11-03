@@ -1,10 +1,10 @@
-from PyQt5.QtCore import QTimer # Import QTimer
+from PyQt5.QtCore import Qt, QTimer # Import QTimer
 from PyQt5.QtGui import QIntValidator, QIcon
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame,
-    QMessageBox, QSpacerItem, QSizePolicy,
-    QApplication # Import QApplication for processEvents
+    QMessageBox, QSpacerItem, QSizePolicy, QApplication, 
+    QDockWidget, QTreeWidget, QTreeWidgetItem
 )
 import pyperclip
 import os
@@ -13,6 +13,7 @@ from core.user_input import UserInputHandler
 # from ui.page_label import ClickablePageLabel # Not directly needed here anymore
 from styles import apply_style
 from ui.pdf_view import PDFViewer # Import the new class
+from ui.toc_display import TOCWidget
 from helpers.locate_resources import get_resource_path
 
 class MainWindow(QMainWindow): # Renamed for clarity
@@ -39,6 +40,8 @@ class MainWindow(QMainWindow): # Renamed for clarity
 
         self.input_handler = UserInputHandler(self)
         self.page_manager = None # Will be initialized in setup_ui
+
+        self.toc_widget = TOCWidget()
 
         self.setup_ui()
         self.apply_style()
@@ -151,6 +154,24 @@ class MainWindow(QMainWindow): # Renamed for clarity
         )
         
         # -----------------------------
+        #         TOC DOCK WIDGET
+        # -----------------------------
+
+        self.toc_dock = QDockWidget("Table of Contents", self)
+        self.toc_dock.setWidget(self.toc_widget)
+        self.toc_dock.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.toc_dock)
+        self.toc_dock.hide() # Start hidden
+        
+        # Connect the TOC link signal to the jump logic
+        self.toc_widget.toc_link_clicked.connect(self.page_manager.jump_to_page)
+
+        # New: Add a button to the Top Toolbar to show/hide the TOC
+        self.toc_button = QPushButton("TOC", self.top_frame)
+        self.toc_button.clicked.connect(self.toggle_toc_view)
+        self.top_layout.insertWidget(1, self.toc_button)
+
+        # -----------------------------
         #         MAIN LAYOUT
         # -----------------------------
         main_layout = QVBoxLayout()
@@ -189,12 +210,33 @@ class MainWindow(QMainWindow): # Renamed for clarity
         if file_path:
             self.load_pdf(file_path)
     
+    def toggle_toc_view(self):
+        """Shows or hides the TOC dock widget."""
+        if self.toc_dock.isVisible():
+            self.toc_dock.hide()
+        else:
+            self.toc_dock.show()
+            self.load_toc_data()
+
+    def load_toc_data(self):
+        """Gets TOC data and loads it into the TOC widget."""
+        toc_data = self.pdf_reader.get_toc()
+        self.toc_widget.load_toc(toc_data)
+
+        # Hide the button if the PDF doesn't have a TOC
+        has_toc = bool(toc_data)
+        self.toc_button.setVisible(has_toc)
+        if not has_toc:
+            self.toc_dock.hide()
+    
     def load_pdf(self, file_path):
         success, total_pages = self.pdf_reader.load_pdf(file_path)
         if success:
             self.total_page_label.setText(f"/ {total_pages}")
             self.page_edit.setValidator(QIntValidator(1, total_pages, self))
             self.file_name_label.setText(os.path.basename(file_path))
+
+            self.load_toc_data()
             
             self.page_manager.clear_all()
             
