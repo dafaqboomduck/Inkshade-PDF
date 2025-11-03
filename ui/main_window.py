@@ -186,7 +186,6 @@ class MainWindow(QMainWindow): # Renamed for clarity
 
     def _handle_toc_click(self, page_num, y_pos):
         """Handle TOC item clicks with precise positioning."""
-        print(f"DEBUG TOC Click - Page: {page_num}, Y-pos: {y_pos}, Zoom: {self.zoom}")
         self.page_manager.jump_to_page(page_num, y_pos)
 
     def keyPressEvent(self, event):

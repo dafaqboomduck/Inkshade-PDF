@@ -38,7 +38,6 @@ class TOCWidget(QTreeWidget):
                 # Extract the y-coordinate from the 'to' Point
                 to_point = details.get('to')
                 y_pos = to_point.y if to_point else 0.0
-                print(f"DEBUG TOC Entry: '{title}' -> Page {page_num}, Y: {y_pos}")
             else:
                 continue
 

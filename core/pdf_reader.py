@@ -149,7 +149,6 @@ class PDFDocumentReader:
                     self.search_results.append((i, rect))
             
             self.current_search_index = -1
-            print((i, rect))
         return len(self.search_results)
 
     def get_search_result_info(self):
@@ -162,7 +161,6 @@ class PDFDocumentReader:
         """Moves to the next search result and returns its info."""
         if not self.search_results: return None, None
         self.current_search_index = (self.current_search_index + 1) % len(self.search_results)
-        print(self.search_results[self.current_search_index])
         return self.search_results[self.current_search_index]
 
     def prev_search_result(self):
