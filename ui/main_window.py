@@ -307,12 +307,9 @@ class MainWindow(QMainWindow): # Renamed for clarity
     # Helper function for delayed scroll restoration
     def _restore_scroll_position(self, current_page_index, offset_in_page):
         if self.page_height:
-            # 1. Jump to the beginning of the page
-            self.page_manager.jump_to_page(current_page_index + 1) 
-            
-            # 2. Add the offset (relative to the start of the page)
-            current_y = self.scroll_area.verticalScrollBar().value()
-            self.scroll_area.verticalScrollBar().setValue(int(current_y + offset_in_page))
+            # Calculate the target scroll position directly instead of using jump_to_page
+            target_y = (current_page_index * (self.page_height + self.page_spacing)) + offset_in_page
+            self.scroll_area.verticalScrollBar().setValue(int(target_y))
             
             if self.pdf_reader.search_results:
                 self._jump_to_current_search_result()
