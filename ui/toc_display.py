@@ -8,7 +8,9 @@ class TOCWidget(QTreeWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setHeaderLabels(["Table of Contents"])
+        # self.setHeaderLabels(["Table of Contents"])
+        self.setHeaderHidden(True)  # Hide the header row
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setFixedWidth(250)
         self.itemClicked.connect(self._item_clicked)
         self.setToolTip("Click an item to jump to that page.")
