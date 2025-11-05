@@ -2,7 +2,7 @@ from PyQt5.QtCore import Qt, QRect, QRectF
 from PyQt5.QtGui import QPainter, QColor, QBrush, QImage
 from PyQt5.QtWidgets import QLabel
 from core.user_input import UserInputHandler
-from core.annotation_manager import AnnotationType
+from helpers.annotations import AnnotationType
 
 # Custom widget to display a page image and handle text selection
 class ClickablePageLabel(QLabel):
@@ -69,6 +69,7 @@ class ClickablePageLabel(QLabel):
         self.input_handler.handle_page_label_mouse_release(self, event)
 
     def paintEvent(self, event):
+        print(f"=== PAINT EVENT START === annotations: {len(self.annotations)}")
         # 1. First, call the superclass's paintEvent to draw the QPixmap (the page image)
         super().paintEvent(event)
         
@@ -110,36 +111,38 @@ class ClickablePageLabel(QLabel):
         # --- NEW: Draw Annotations onto the buffer ---
         
         for annotation in self.annotations:
+            
             # Set color based on annotation color (with some transparency)
             color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], 100)
             
             if annotation.annotation_type == AnnotationType.HIGHLIGHT:
                 # Draw highlight as filled rectangles
                 buf_painter.setBrush(QBrush(color))
-                for quad in annotation.quads:
+                for i, quad in enumerate(annotation.quads):
                     # Quads are [x0, y0, x1, y1, x2, y2, x3, y3]
-                    # For highlights, we can use a simple rectangle from top-left to bottom-right
+                    # (x0,y0) = top-left, (x1,y1) = top-right
+                    # (x2,y2) = bottom-left, (x3,y3) = bottom-right
                     rect = QRectF(
-                        quad[0] * self.zoom_level,
-                        quad[1] * self.zoom_level,
-                        (quad[4] - quad[0]) * self.zoom_level,  # width: x2 - x0
+                        quad[0] * self.zoom_level,  # x0 (left)
+                        quad[1] * self.zoom_level,  # y0 (top)
+                        (quad[2] - quad[0]) * self.zoom_level,  # width: x1 - x0
                         (quad[5] - quad[1]) * self.zoom_level   # height: y2 - y0
                     )
                     buf_painter.drawRect(rect)
-            
+
             elif annotation.annotation_type == AnnotationType.UNDERLINE:
                 # Draw underline as a line at the bottom of the text
                 buf_painter.setPen(color)
-                for quad in annotation.quads:
+                for i, quad in enumerate(annotation.quads):
                     # Draw line from bottom-left to bottom-right
-                    line_y = quad[7] * self.zoom_level  # y3 (bottom coordinate)
+                    line_y = quad[5] * self.zoom_level  # y2 (bottom-left y coordinate)
                     buf_painter.drawLine(
-                        int(quad[0] * self.zoom_level),  # x0
+                        int(quad[0] * self.zoom_level),  # x0 (left)
                         int(line_y),
-                        int(quad[4] * self.zoom_level),  # x2
+                        int(quad[2] * self.zoom_level),  # x1 (right)
                         int(line_y)
                     )
-                buf_painter.setPen(Qt.NoPen)  # Reset pen
+                buf_painter.setPen(Qt.NoPen)
 
         # --- Draw Text Selection Highlights onto the buffer ---
 

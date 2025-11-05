@@ -89,6 +89,7 @@ class PDFViewer:
                 if current_rect in rects_on_page:
                     current_idx_on_page = rects_on_page.index(current_rect)
 
+            # Get annotations for this page
             annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
 
             label = ClickablePageLabel(self.page_container)
