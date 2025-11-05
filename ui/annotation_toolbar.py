@@ -1,67 +1,107 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
-    QFrame, QHBoxLayout, QPushButton, QLabel, 
-    QColorDialog, QButtonGroup, QRadioButton
+    QFrame, QHBoxLayout, QLabel, 
+    QColorDialog, QToolButton, QSpacerItem, QSizePolicy
 )
 from helpers.annotations import AnnotationType
 
 
 class AnnotationToolbar(QFrame):
-    """Toolbar for creating annotations on selected text."""
+    """Modern toolbar for creating annotations on selected text."""
     
-    # Signal emitted when user wants to create an annotation
-    annotation_requested = pyqtSignal(AnnotationType, tuple)  # (type, color)
+    annotation_requested = pyqtSignal(AnnotationType, tuple)
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("AnnotationToolbar")
-        self.current_color = (255, 255, 0)  # Default: Yellow
+        self.current_color = (255, 255, 0)
         self.current_type = AnnotationType.HIGHLIGHT
         
         self.setup_ui()
-        self.hide()  # Start hidden
+        self.hide()
     
     def setup_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(8)
         
-        # Annotation type selector
-        type_label = QLabel("Type:", self)
-        layout.addWidget(type_label)
+        # Title
+        title_label = QLabel("Annotate:", self)
+        title_label.setStyleSheet("font-weight: bold; color: #8899AA;")
+        layout.addWidget(title_label)
         
-        self.highlight_radio = QRadioButton("Highlight", self)
-        self.highlight_radio.setChecked(True)
-        self.highlight_radio.toggled.connect(self._on_type_changed)
-        layout.addWidget(self.highlight_radio)
+        layout.addSpacerItem(QSpacerItem(10, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
         
-        self.underline_radio = QRadioButton("Underline", self)
-        self.underline_radio.toggled.connect(self._on_type_changed)
-        layout.addWidget(self.underline_radio)
+        # Highlight button
+        self.highlight_button = QToolButton(self)
+        self.highlight_button.setText("🖍")
+        self.highlight_button.setToolTip("Highlight")
+        self.highlight_button.setCheckable(True)
+        self.highlight_button.setChecked(True)
+        self.highlight_button.setFixedSize(36, 36)
+        self.highlight_button.clicked.connect(lambda: self._set_type(AnnotationType.HIGHLIGHT))
+        layout.addWidget(self.highlight_button)
         
-        # Color picker button
-        self.color_button = QPushButton("Color", self)
+        # Underline button
+        self.underline_button = QToolButton(self)
+        self.underline_button.setText("U̲")
+        self.underline_button.setToolTip("Underline")
+        self.underline_button.setCheckable(True)
+        self.underline_button.setFixedSize(36, 36)
+        self.underline_button.clicked.connect(lambda: self._set_type(AnnotationType.UNDERLINE))
+        layout.addWidget(self.underline_button)
+        
+        layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
+        
+        # Color picker
+        self.color_button = QToolButton(self)
+        self.color_button.setToolTip("Choose color")
+        self.color_button.setFixedSize(36, 36)
         self.color_button.clicked.connect(self._choose_color)
-        self._update_color_button_style()
+        self._update_color_button()
         layout.addWidget(self.color_button)
         
+        layout.addSpacerItem(QSpacerItem(10, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        
         # Apply button
-        self.apply_button = QPushButton("Apply", self)
+        self.apply_button = QToolButton(self)
+        self.apply_button.setText("Apply")
+        self.apply_button.setToolTip("Apply annotation")
+        self.apply_button.setFixedHeight(36)
+        self.apply_button.setMinimumWidth(70)
         self.apply_button.clicked.connect(self._on_apply)
+        self.apply_button.setStyleSheet("""
+            QToolButton {
+                background-color: #4a9eff;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 0 12px;
+                font-weight: bold;
+            }
+            QToolButton:hover {
+                background-color: #3a8eef;
+            }
+            QToolButton:pressed {
+                background-color: #2a7edf;
+            }
+        """)
         layout.addWidget(self.apply_button)
         
-        # Cancel button
-        self.cancel_button = QPushButton("Cancel", self)
+        # Close button
+        self.cancel_button = QToolButton(self)
+        self.cancel_button.setText("✕")
+        self.cancel_button.setToolTip("Close")
+        self.cancel_button.setFixedSize(32, 32)
         self.cancel_button.clicked.connect(self.hide)
         layout.addWidget(self.cancel_button)
     
-    def _on_type_changed(self):
-        """Update current annotation type based on radio button selection."""
-        if self.highlight_radio.isChecked():
-            self.current_type = AnnotationType.HIGHLIGHT
-        else:
-            self.current_type = AnnotationType.UNDERLINE
+    def _set_type(self, annotation_type):
+        """Update current annotation type and button states."""
+        self.current_type = annotation_type
+        self.highlight_button.setChecked(annotation_type == AnnotationType.HIGHLIGHT)
+        self.underline_button.setChecked(annotation_type == AnnotationType.UNDERLINE)
     
     def _choose_color(self):
         """Open color picker dialog."""
@@ -70,21 +110,18 @@ class AnnotationToolbar(QFrame):
         
         if color.isValid():
             self.current_color = (color.red(), color.green(), color.blue())
-            self._update_color_button_style()
+            self._update_color_button()
     
-    def _update_color_button_style(self):
+    def _update_color_button(self):
         """Update the color button to show the current color."""
         r, g, b = self.current_color
         self.color_button.setStyleSheet(f"""
-            QPushButton {{
+            QToolButton {{
                 background-color: rgb({r}, {g}, {b});
-                color: {'#000000' if (r + g + b) > 384 else '#ffffff'};
                 border: 2px solid #555555;
                 border-radius: 4px;
-                padding: 6px 12px;
-                font-weight: bold;
             }}
-            QPushButton:hover {{
+            QToolButton:hover {{
                 border: 2px solid #777777;
             }}
         """)
