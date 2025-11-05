@@ -213,6 +213,41 @@ class MainWindow(QMainWindow): # Renamed for clarity
         file_path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
         if file_path:
             self.load_pdf(file_path)
+
+    def close_pdf(self):
+        """Closes the currently loaded PDF and resets the application state."""
+        if self.pdf_reader.doc is None:
+            return # No PDF is loaded
+        
+         # Clear the PDF reader
+        self.pdf_reader.close_document()
+
+        # Clear all loaded pages
+        self.page_manager.clear_all()
+
+        # Clear TOC
+        self.toc_widget.clear_toc()
+        self.toc_dock.hide()
+        self.toc_button.setVisible(False)
+
+        # Clear search
+        self._clear_search()
+        self._hide_search_bar()
+
+        # Reset UI elements
+        self.file_name_label.setText("No PDF Loaded")
+        self.total_page_label.setText("/ 0")
+        self.page_edit.setText("1")
+        self.page_edit.setValidator(QIntValidator(1, 1, self))
+
+        # Reset state variables
+        self.current_page_index = 0
+        self.page_height = None
+        self.loaded_pages.clear()
+
+        # Reset scroll position
+        self.scroll_area.verticalScrollBar().setValue(0)
+
     
     def toggle_toc_view(self):
         """Shows or hides the TOC dock widget."""
