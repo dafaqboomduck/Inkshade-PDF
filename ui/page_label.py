@@ -70,14 +70,12 @@ class ClickablePageLabel(QLabel):
                 self.line_word_map[key].append(word_info)
 
     def mousePressEvent(self, event):
-        print(f"DEBUG mousePressEvent: is_drawing_mode={self.is_drawing_mode}, button={event.button()}")
         
         if self.is_drawing_mode and event.button() == Qt.LeftButton:
             # Start drawing
             self.is_currently_drawing = True
             self.current_drawing_points = [(event.pos().x() / self.zoom_level, 
                                             event.pos().y() / self.zoom_level)]
-            print(f"DEBUG: Started drawing at {self.current_drawing_points[0]}")
             self.update()
         else:
             # Normal text selection
@@ -93,16 +91,13 @@ class ClickablePageLabel(QLabel):
             # Normal text selection
             self.input_handler.handle_page_label_mouse_move(self, event)
             
-    def mouseReleaseEvent(self, event):
-        print(f"DEBUG mouseReleaseEvent: is_drawing_mode={self.is_drawing_mode}, is_currently_drawing={self.is_currently_drawing}")
-        
+    def mouseReleaseEvent(self, event):        
         if self.is_drawing_mode and event.button() == Qt.LeftButton and self.is_currently_drawing:
             # Finish drawing
             self.is_currently_drawing = False
             self.current_drawing_points.append((event.pos().x() / self.zoom_level, 
                                             event.pos().y() / self.zoom_level))
             
-            print(f"DEBUG: Finished drawing with {len(self.current_drawing_points)} points")
             
             # Create annotation from the drawn shape
             self._finalize_drawing()
@@ -115,10 +110,8 @@ class ClickablePageLabel(QLabel):
 
     def _finalize_drawing(self):
         """Create an annotation from the current drawing."""
-        print(f"DEBUG _finalize_drawing: Points count: {len(self.current_drawing_points)}")
         
         if len(self.current_drawing_points) < 2:
-            print("DEBUG: Not enough points, returning")
             return  # Need at least 2 points
         
         # Emit signal to parent to create annotation
@@ -129,8 +122,7 @@ class ClickablePageLabel(QLabel):
         main_window = self.parent()
         while main_window and not hasattr(main_window, 'annotation_manager'):
             main_window = main_window.parent()
-        
-        print(f"DEBUG: Found main_window: {main_window is not None}")
+
         
         if main_window:
             # Find which page this label represents
@@ -139,11 +131,6 @@ class ClickablePageLabel(QLabel):
                 if label == self:
                     page_index = idx
                     break
-            
-            print(f"DEBUG: Page index: {page_index}")
-            print(f"DEBUG: Tool: {self.current_drawing_tool}")
-            print(f"DEBUG: Color: {self.current_drawing_color}")
-            print(f"DEBUG: Points: {self.current_drawing_points[:3]}...")  # First 3 points
             
             if page_index is not None:
                 annotation = Annotation(
@@ -155,15 +142,10 @@ class ClickablePageLabel(QLabel):
                     filled=self.current_drawing_filled
                 )
                 main_window.annotation_manager.add_annotation(annotation)
-                
-                print(f"DEBUG: Annotation added. Total: {main_window.annotation_manager.get_annotation_count()}")
-                print(f"DEBUG: Annotations on page {page_index}: {len(main_window.annotation_manager.get_annotations_for_page(page_index))}")
-                
+                            
                 # Refresh this page to show the new annotation
                 main_window._refresh_current_page()
                 
-                print("DEBUG: Page refreshed")
-
     def paintEvent(self, event):
         # 1. First, call the superclass's paintEvent to draw the QPixmap (the page image)
         super().paintEvent(event)
