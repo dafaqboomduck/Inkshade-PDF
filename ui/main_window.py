@@ -219,22 +219,6 @@ class MainWindow(QMainWindow):
         self.toggle_button.clicked.connect(self.toggle_mode)
         self.top_layout.addWidget(self.toggle_button)
         
-        # SEARCH BAR
-        self.search_bar = SearchBar(self)
-        self.search_bar.search_requested.connect(self._execute_search)
-        self.search_bar.next_result_requested.connect(self._find_next)
-        self.search_bar.prev_result_requested.connect(self._find_prev)
-        self.search_bar.close_requested.connect(self._clear_search)
-
-        # ANNOTATION TOOLBAR
-        self.annotation_toolbar = AnnotationToolbar(self)
-        self.annotation_toolbar.annotation_requested.connect(self._create_annotation_from_selection)
-
-        # DRAWING TOOLBAR
-        self.drawing_toolbar = DrawingToolbar(self)
-        self.drawing_toolbar.drawing_mode_changed.connect(self._on_drawing_mode_changed)
-        self.drawing_toolbar.tool_changed.connect(self._on_drawing_tool_changed)
-
         # PAGE DISPLAY AREA
         self.page_container = QWidget()
         self.scroll_area = QScrollArea()
@@ -249,6 +233,22 @@ class MainWindow(QMainWindow):
             pdf_reader_core=self.pdf_reader,
             annotation_manager=self.annotation_manager
         )
+        
+        # SEARCH BAR (floating)
+        self.search_bar = SearchBar(self.scroll_area)
+        self.search_bar.search_requested.connect(self._execute_search)
+        self.search_bar.next_result_requested.connect(self._find_next)
+        self.search_bar.prev_result_requested.connect(self._find_prev)
+        self.search_bar.close_requested.connect(self._clear_search)
+
+        # ANNOTATION TOOLBAR (floating)
+        self.annotation_toolbar = AnnotationToolbar(self.scroll_area)
+        self.annotation_toolbar.annotation_requested.connect(self._create_annotation_from_selection)
+
+        # DRAWING TOOLBAR (floating)
+        self.drawing_toolbar = DrawingToolbar(self.scroll_area)
+        self.drawing_toolbar.drawing_mode_changed.connect(self._on_drawing_mode_changed)
+        self.drawing_toolbar.tool_changed.connect(self._on_drawing_tool_changed)
         
         # TOC WIDGET (not a dock, just a regular widget)
         self.toc_widget.toc_link_clicked.connect(self._handle_toc_click)
@@ -274,14 +274,21 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.top_frame)
-        main_layout.addWidget(self.search_bar)
-        main_layout.addWidget(self.annotation_toolbar)
-        main_layout.addWidget(self.drawing_toolbar)
         main_layout.addWidget(content_widget)
         
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
+    
+    def resizeEvent(self, event):
+        """Handle window resize to reposition floating toolbars."""
+        super().resizeEvent(event)
+        if hasattr(self, 'search_bar'):
+            self.search_bar.update_position(self.scroll_area.size())
+        if hasattr(self, 'annotation_toolbar'):
+            self.annotation_toolbar.update_position(self.scroll_area.size())
+        if hasattr(self, 'drawing_toolbar'):
+            self.drawing_toolbar.update_position(self.scroll_area.size())
 
     def _handle_toc_click(self, page_num, y_pos):
         """Handle TOC item clicks with precise positioning."""
