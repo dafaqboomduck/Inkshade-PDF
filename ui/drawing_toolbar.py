@@ -1,15 +1,15 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, 
-    QColorDialog, QToolButton, QSpinBox, QCheckBox,
-    QSpacerItem, QSizePolicy
+    QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
+    QColorDialog, QToolButton, QSpinBox, QCheckBox, QWidget,
+    QGraphicsDropShadowEffect
 )
 from helpers.annotations import AnnotationType
 
 
 class DrawingToolbar(QFrame):
-    """Modern toolbar for drawing shapes and freehand annotations."""
+    """Compact drawing toolbar that appears on the right side."""
     
     drawing_mode_changed = pyqtSignal(bool)
     tool_changed = pyqtSignal(AnnotationType, tuple, float, bool)
@@ -27,16 +27,37 @@ class DrawingToolbar(QFrame):
         self.hide()
     
     def setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(8)
+        # Fixed width for compact display
+        self.setFixedWidth(300)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 10, 12, 10)
+        main_layout.setSpacing(10)
+        
+        # Header
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(8)
+        
+        header_label = QLabel("Draw", self)
+        header_label.setStyleSheet("font-weight: bold; color: #8899AA;")
+        header_layout.addWidget(header_label)
+        
+        header_layout.addStretch()
+        
+        self.close_button = QToolButton(self)
+        self.close_button.setText("✕")
+        self.close_button.setToolTip("Close toolbar")
+        self.close_button.setFixedSize(24, 24)
+        self.close_button.clicked.connect(self._close_toolbar)
+        header_layout.addWidget(self.close_button)
+        
+        main_layout.addLayout(header_layout)
         
         # Drawing mode toggle
         self.mode_button = QToolButton(self)
         self.mode_button.setText("Start Drawing")
         self.mode_button.setCheckable(True)
         self.mode_button.setFixedHeight(36)
-        self.mode_button.setMinimumWidth(110)
         self.mode_button.clicked.connect(self._toggle_drawing_mode)
         self.mode_button.setStyleSheet("""
             QToolButton {
@@ -57,82 +78,118 @@ class DrawingToolbar(QFrame):
                 background-color: #ff5252;
             }
         """)
-        layout.addWidget(self.mode_button)
+        main_layout.addWidget(self.mode_button)
         
-        # Separator
-        separator1 = QFrame()
-        separator1.setFrameShape(QFrame.VLine)
-        separator1.setFrameShadow(QFrame.Sunken)
-        separator1.setStyleSheet("background-color: #555555; max-width: 1px;")
-        layout.addWidget(separator1)
+        # Tool selection
+        tools_label = QLabel("Tools", self)
+        tools_label.setStyleSheet("color: #8899AA; font-size: 11px; margin-top: 4px;")
+        main_layout.addWidget(tools_label)
         
-        # Tool selection label
-        tools_label = QLabel("Tool:", self)
-        tools_label.setStyleSheet("font-weight: bold; color: #8899AA; padding-left: 4px;")
-        layout.addWidget(tools_label)
+        # Tool buttons - First row
+        tool_row1 = QHBoxLayout()
+        tool_row1.setSpacing(6)
         
-        # Tool buttons
         self.tool_buttons = []
         
         self.freehand_button = self._create_tool_button("✏️", "Freehand", AnnotationType.FREEHAND, True)
-        layout.addWidget(self.freehand_button)
+        tool_row1.addWidget(self.freehand_button)
         
         self.line_button = self._create_tool_button("—", "Line", AnnotationType.LINE, False)
-        layout.addWidget(self.line_button)
+        tool_row1.addWidget(self.line_button)
         
         self.arrow_button = self._create_tool_button("→", "Arrow", AnnotationType.ARROW, False)
-        layout.addWidget(self.arrow_button)
-        
+        tool_row1.addWidget(self.arrow_button)
+
         self.rect_button = self._create_tool_button("□", "Rectangle", AnnotationType.RECTANGLE, False)
-        layout.addWidget(self.rect_button)
+        tool_row1.addWidget(self.rect_button)
         
         self.circle_button = self._create_tool_button("○", "Circle", AnnotationType.CIRCLE, False)
-        layout.addWidget(self.circle_button)
+        tool_row1.addWidget(self.circle_button)
         
-        # Separator
-        separator2 = QFrame()
-        separator2.setFrameShape(QFrame.VLine)
-        separator2.setFrameShadow(QFrame.Sunken)
-        separator2.setStyleSheet("background-color: #555555; max-width: 1px;")
-        layout.addWidget(separator2)
+        main_layout.addLayout(tool_row1)
+        
+        # # Tool buttons - Second row
+        # tool_row2 = QHBoxLayout()
+        # tool_row2.setSpacing(6)
+        
+        # self.rect_button = self._create_tool_button("□", "Rectangle", AnnotationType.RECTANGLE, False)
+        # tool_row2.addWidget(self.rect_button)
+        
+        # self.circle_button = self._create_tool_button("○", "Circle", AnnotationType.CIRCLE, False)
+        # tool_row2.addWidget(self.circle_button)
+        
+        # tool_row2.addStretch()
+        
+        # main_layout.addLayout(tool_row2)
+        
+        # Settings
+        settings_label = QLabel("Settings", self)
+        settings_label.setStyleSheet("color: #8899AA; font-size: 11px; margin-top: 4px;")
+        main_layout.addWidget(settings_label)
         
         # Stroke width
+        width_layout = QHBoxLayout()
+        width_layout.setSpacing(8)
+        
         width_label = QLabel("Width:", self)
-        width_label.setStyleSheet("color: #8899AA; padding-left: 4px;")
-        layout.addWidget(width_label)
+        width_label.setStyleSheet("color: #B5B5C5;")
+        width_layout.addWidget(width_label)
         
         self.stroke_spinbox = QSpinBox(self)
         self.stroke_spinbox.setMinimum(1)
         self.stroke_spinbox.setMaximum(20)
         self.stroke_spinbox.setValue(2)
-        self.stroke_spinbox.setFixedWidth(60)
-        self.stroke_spinbox.setFixedHeight(32)
+        self.stroke_spinbox.setFixedWidth(70)
+        self.stroke_spinbox.setFixedHeight(28)
         self.stroke_spinbox.valueChanged.connect(self._on_stroke_changed)
-        layout.addWidget(self.stroke_spinbox)
+        width_layout.addWidget(self.stroke_spinbox)
         
-        # Filled checkbox
-        self.filled_checkbox = QCheckBox("Fill", self)
+        width_layout.addStretch()
+        
+        main_layout.addLayout(width_layout)
+        
+        # Fill option
+        self.filled_checkbox = QCheckBox("Fill shapes", self)
         self.filled_checkbox.setEnabled(False)
         self.filled_checkbox.stateChanged.connect(self._on_filled_changed)
-        layout.addWidget(self.filled_checkbox)
+        main_layout.addWidget(self.filled_checkbox)
         
         # Color picker
+        color_layout = QHBoxLayout()
+        color_layout.setSpacing(8)
+        
+        color_label = QLabel("Color:", self)
+        color_label.setStyleSheet("color: #B5B5C5;")
+        color_layout.addWidget(color_label)
+        
         self.color_button = QToolButton(self)
         self.color_button.setToolTip("Choose color")
-        self.color_button.setFixedSize(36, 36)
+        self.color_button.setFixedSize(40, 40)
         self.color_button.clicked.connect(self._choose_color)
         self._update_color_button()
-        layout.addWidget(self.color_button)
+        color_layout.addWidget(self.color_button)
         
-        layout.addSpacerItem(QSpacerItem(10, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        color_layout.addStretch()
         
-        # Close button
-        self.close_button = QToolButton(self)
-        self.close_button.setText("✕")
-        self.close_button.setToolTip("Close toolbar")
-        self.close_button.setFixedSize(32, 32)
-        self.close_button.clicked.connect(self._close_toolbar)
-        layout.addWidget(self.close_button)
+        main_layout.addLayout(color_layout)
+        
+        main_layout.addStretch()
+        
+        # Style the frame
+        self.setStyleSheet("""
+            #DrawingToolbar {
+                background-color: #2e2e2e;
+                border: 1px solid #3e3e3e;
+                border-radius: 8px;
+            }
+        """)
+        
+        # Add shadow
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setOffset(0, 2)
+        self.setGraphicsEffect(shadow)
     
     def _create_tool_button(self, icon, tooltip, tool_type, checked):
         """Create a tool selection button."""
@@ -141,7 +198,7 @@ class DrawingToolbar(QFrame):
         btn.setToolTip(tooltip)
         btn.setCheckable(True)
         btn.setChecked(checked)
-        btn.setFixedSize(36, 36)
+        btn.setFixedSize(40, 40)
         btn.clicked.connect(lambda: self._select_tool(tool_type, btn))
         self.tool_buttons.append((btn, tool_type))
         return btn
@@ -228,3 +285,9 @@ class DrawingToolbar(QFrame):
     def is_in_drawing_mode(self):
         """Check if currently in drawing mode."""
         return self.is_drawing_mode
+    
+    def update_position(self, parent_size):
+        """Position the toolbar in the top-right corner."""
+        x = parent_size.width() - self.width() - 12
+        y = 20
+        self.move(x, y)

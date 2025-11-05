@@ -1,66 +1,100 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QToolButton, QSpacerItem, QSizePolicy
+    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QToolButton, QWidget, QGraphicsDropShadowEffect
 )
+from PyQt5.QtGui import QColor
+
 
 class SearchBar(QFrame):
-    """Modern search bar for PDF document searching."""
+    """Compact modern search bar that appears on the right side."""
     
     # Signals
-    search_requested = pyqtSignal(str)  # Emits search term
+    search_requested = pyqtSignal(str)
     next_result_requested = pyqtSignal()
     prev_result_requested = pyqtSignal()
     close_requested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("SearchFrame")
+        self.setObjectName("SearchBar")
         self.setup_ui()
         self.hide()
     
     def setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(8)
+        # Make it a floating widget with fixed width
+        self.setFixedWidth(300)
         
-        # Search input with icon
-        self.search_input = QLineEdit(self)
-        self.search_input.setPlaceholderText("Search in document...")
-        self.search_input.setFixedHeight(32)
-        self.search_input.setMinimumWidth(300)
-        self.search_input.returnPressed.connect(self._on_search)
-        layout.addWidget(self.search_input)
-
-        # Navigation buttons (compact icon style)
-        self.prev_button = QToolButton(self)
-        self.prev_button.setText("◀")
-        self.prev_button.setToolTip("Previous result")
-        self.prev_button.setFixedSize(32, 32)
-        self.prev_button.clicked.connect(self.prev_result_requested.emit)
-        layout.addWidget(self.prev_button)
-
-        self.next_button = QToolButton(self)
-        self.next_button.setText("▶")
-        self.next_button.setToolTip("Next result")
-        self.next_button.setFixedSize(32, 32)
-        self.next_button.clicked.connect(self.next_result_requested.emit)
-        layout.addWidget(self.next_button)
-
-        # Results status
-        self.status_label = QLabel("", self)
-        self.status_label.setStyleSheet("color: #8899AA; padding: 0 8px;")
-        layout.addWidget(self.status_label)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 10, 12, 10)
+        main_layout.setSpacing(8)
         
-        layout.addSpacerItem(QSpacerItem(10, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-
-        # Close button
+        # Header with close button
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(8)
+        
+        header_label = QLabel("Search", self)
+        header_label.setStyleSheet("font-weight: bold; color: #8899AA;")
+        header_layout.addWidget(header_label)
+        
+        header_layout.addStretch()
+        
         self.close_button = QToolButton(self)
         self.close_button.setText("✕")
         self.close_button.setToolTip("Close search")
-        self.close_button.setFixedSize(32, 32)
+        self.close_button.setFixedSize(24, 24)
         self.close_button.clicked.connect(self._on_close)
-        layout.addWidget(self.close_button)
+        header_layout.addWidget(self.close_button)
+        
+        main_layout.addLayout(header_layout)
+        
+        # Search input
+        self.search_input = QLineEdit(self)
+        self.search_input.setPlaceholderText("Search in document...")
+        self.search_input.setFixedHeight(32)
+        self.search_input.returnPressed.connect(self._on_search)
+        main_layout.addWidget(self.search_input)
+        
+        # Navigation and status
+        nav_layout = QHBoxLayout()
+        nav_layout.setSpacing(6)
+        
+        self.prev_button = QToolButton(self)
+        self.prev_button.setText("◀")
+        self.prev_button.setToolTip("Previous")
+        self.prev_button.setFixedSize(28, 28)
+        self.prev_button.clicked.connect(self.prev_result_requested.emit)
+        nav_layout.addWidget(self.prev_button)
+        
+        self.next_button = QToolButton(self)
+        self.next_button.setText("▶")
+        self.next_button.setToolTip("Next")
+        self.next_button.setFixedSize(28, 28)
+        self.next_button.clicked.connect(self.next_result_requested.emit)
+        nav_layout.addWidget(self.next_button)
+        
+        self.status_label = QLabel("", self)
+        self.status_label.setStyleSheet("color: #8899AA; font-size: 12px;")
+        nav_layout.addWidget(self.status_label)
+        nav_layout.addStretch()
+        
+        main_layout.addLayout(nav_layout)
+        
+        # Style the frame
+        self.setStyleSheet("""
+            #SearchBar {
+                background-color: #2e2e2e;
+                border: 1px solid #3e3e3e;
+                border-radius: 8px;
+            }
+        """)
+        
+        # Add shadow effect for better visibility
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setOffset(0, 2)
+        self.setGraphicsEffect(shadow)
     
     def _on_search(self):
         """Handle search request."""
@@ -75,6 +109,7 @@ class SearchBar(QFrame):
     def show_bar(self):
         """Show the search bar and focus on input."""
         self.show()
+        self.raise_()
         self.search_input.setFocus()
         self.search_input.selectAll()
     
@@ -90,3 +125,9 @@ class SearchBar(QFrame):
     def get_search_text(self):
         """Get the current search text."""
         return self.search_input.text()
+    
+    def update_position(self, parent_size):
+        """Position the search bar in the top-right corner."""
+        x = parent_size.width() - self.width() - 12
+        y = 20
+        self.move(x, y)

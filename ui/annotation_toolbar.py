@@ -1,14 +1,14 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, 
-    QColorDialog, QToolButton, QSpacerItem, QSizePolicy
+    QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
+    QColorDialog, QToolButton, QWidget, QGraphicsDropShadowEffect
 )
 from helpers.annotations import AnnotationType
 
 
 class AnnotationToolbar(QFrame):
-    """Modern toolbar for creating annotations on selected text."""
+    """Compact annotation toolbar that appears on the right side."""
     
     annotation_requested = pyqtSignal(AnnotationType, tuple)
     
@@ -22,54 +22,80 @@ class AnnotationToolbar(QFrame):
         self.hide()
     
     def setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(8)
+        # Fixed width for compact display
+        self.setFixedWidth(300)
         
-        # Title
-        title_label = QLabel("Annotate:", self)
-        title_label.setStyleSheet("font-weight: bold; color: #8899AA;")
-        layout.addWidget(title_label)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 10, 12, 10)
+        main_layout.setSpacing(8)
         
-        layout.addSpacerItem(QSpacerItem(10, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
+        # Header
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(8)
         
-        # Highlight button
+        header_label = QLabel("Annotate", self)
+        header_label.setStyleSheet("font-weight: bold; color: #8899AA;")
+        header_layout.addWidget(header_label)
+        
+        header_layout.addStretch()
+        
+        self.close_button = QToolButton(self)
+        self.close_button.setText("✕")
+        self.close_button.setToolTip("Close")
+        self.close_button.setFixedSize(24, 24)
+        self.close_button.clicked.connect(self.hide)
+        header_layout.addWidget(self.close_button)
+        
+        main_layout.addLayout(header_layout)
+        
+        # Type selection
+        type_layout = QHBoxLayout()
+        type_layout.setSpacing(6)
+        
         self.highlight_button = QToolButton(self)
         self.highlight_button.setText("🖍")
         self.highlight_button.setToolTip("Highlight")
         self.highlight_button.setCheckable(True)
         self.highlight_button.setChecked(True)
-        self.highlight_button.setFixedSize(36, 36)
+        self.highlight_button.setFixedSize(40, 40)
         self.highlight_button.clicked.connect(lambda: self._set_type(AnnotationType.HIGHLIGHT))
-        layout.addWidget(self.highlight_button)
+        type_layout.addWidget(self.highlight_button)
         
-        # Underline button
         self.underline_button = QToolButton(self)
         self.underline_button.setText("U̲")
         self.underline_button.setToolTip("Underline")
         self.underline_button.setCheckable(True)
-        self.underline_button.setFixedSize(36, 36)
+        self.underline_button.setFixedSize(40, 40)
         self.underline_button.clicked.connect(lambda: self._set_type(AnnotationType.UNDERLINE))
-        layout.addWidget(self.underline_button)
+        type_layout.addWidget(self.underline_button)
         
-        layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
+        type_layout.addStretch()
+        
+        main_layout.addLayout(type_layout)
         
         # Color picker
+        color_layout = QHBoxLayout()
+        color_layout.setSpacing(8)
+        
+        color_label = QLabel("Color:", self)
+        color_label.setStyleSheet("color: #8899AA;")
+        color_layout.addWidget(color_label)
+        
         self.color_button = QToolButton(self)
         self.color_button.setToolTip("Choose color")
-        self.color_button.setFixedSize(36, 36)
+        self.color_button.setFixedSize(40, 40)
         self.color_button.clicked.connect(self._choose_color)
         self._update_color_button()
-        layout.addWidget(self.color_button)
+        color_layout.addWidget(self.color_button)
         
-        layout.addSpacerItem(QSpacerItem(10, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        color_layout.addStretch()
+        
+        main_layout.addLayout(color_layout)
         
         # Apply button
         self.apply_button = QToolButton(self)
-        self.apply_button.setText("Apply")
-        self.apply_button.setToolTip("Apply annotation")
+        self.apply_button.setText("Apply Annotation")
         self.apply_button.setFixedHeight(36)
-        self.apply_button.setMinimumWidth(70)
         self.apply_button.clicked.connect(self._on_apply)
         self.apply_button.setStyleSheet("""
             QToolButton {
@@ -87,15 +113,25 @@ class AnnotationToolbar(QFrame):
                 background-color: #2a7edf;
             }
         """)
-        layout.addWidget(self.apply_button)
+        main_layout.addWidget(self.apply_button)
         
-        # Close button
-        self.cancel_button = QToolButton(self)
-        self.cancel_button.setText("✕")
-        self.cancel_button.setToolTip("Close")
-        self.cancel_button.setFixedSize(32, 32)
-        self.cancel_button.clicked.connect(self.hide)
-        layout.addWidget(self.cancel_button)
+        main_layout.addStretch()
+        
+        # Style the frame
+        self.setStyleSheet("""
+            #AnnotationToolbar {
+                background-color: #2e2e2e;
+                border: 1px solid #3e3e3e;
+                border-radius: 8px;
+            }
+        """)
+        
+        # Add shadow
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setOffset(0, 2)
+        self.setGraphicsEffect(shadow)
     
     def _set_type(self, annotation_type):
         """Update current annotation type and button states."""
@@ -134,3 +170,9 @@ class AnnotationToolbar(QFrame):
     def get_current_settings(self):
         """Return current annotation type and color."""
         return self.current_type, self.current_color
+    
+    def update_position(self, parent_size):
+        """Position the toolbar in the top-right corner."""
+        x = parent_size.width() - self.width() - 12
+        y = 20
+        self.move(x, y)
