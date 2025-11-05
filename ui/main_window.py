@@ -480,15 +480,38 @@ class MainWindow(QMainWindow):
     def toggle_mode(self):
         self.dark_mode = not self.dark_mode
         
-        # Update icon based on mode
+        # Update icon based on mode with proper coloring
         if self.dark_mode:
-            icon = QIcon(get_resource_path("resources/icons/dark-mode-icon.png"))
-            self.toggle_button.setIcon(icon)
+            icon_path = "resources/icons/dark-mode-icon.png"
             self.toggle_button.setToolTip("Switch to Light Mode")
         else:
-            icon = QIcon(get_resource_path("resources/icons/light-mode-icon.png"))
-            self.toggle_button.setIcon(icon)
+            icon_path = "resources/icons/light-mode-icon.png"
             self.toggle_button.setToolTip("Switch to Dark Mode")
+        
+        # Apply the colored icon using the same method as other buttons
+        if os.path.exists(get_resource_path(icon_path)):
+            # Load the original pixmap
+            pixmap = QPixmap(get_resource_path(icon_path))
+            
+            # Create a new pixmap with the desired color
+            colored_pixmap = QPixmap(pixmap.size())
+            colored_pixmap.fill(Qt.transparent)
+            
+            # Paint the icon in the desired color
+            painter = QPainter(colored_pixmap)
+            painter.setCompositionMode(QPainter.CompositionMode_Source)
+            painter.drawPixmap(0, 0, pixmap)
+            painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+            
+            # Use different colors based on dark mode
+            if self.dark_mode:
+                painter.fillRect(colored_pixmap.rect(), QColor(181, 181, 197))  # Light gray for dark mode
+            else:
+                painter.fillRect(colored_pixmap.rect(), QColor(122, 137, 156))  # Darker gray for light mode
+            painter.end()
+            
+            icon = QIcon(colored_pixmap)
+            self.toggle_button.setIcon(icon)
         
         self.apply_style()
         self.page_manager.set_dark_mode(self.dark_mode)
