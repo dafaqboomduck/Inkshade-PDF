@@ -1,107 +1,164 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
-    QFrame, QHBoxLayout, QPushButton, QLabel, 
-    QColorDialog, QButtonGroup, QRadioButton, QSpinBox, QCheckBox
+    QFrame, QHBoxLayout, QLabel, 
+    QColorDialog, QToolButton, QSpinBox, QCheckBox,
+    QSpacerItem, QSizePolicy
 )
 from helpers.annotations import AnnotationType
 
 
 class DrawingToolbar(QFrame):
-    """Toolbar for drawing shapes and freehand annotations."""
+    """Modern toolbar for drawing shapes and freehand annotations."""
     
-    # Signal emitted when drawing mode changes
-    drawing_mode_changed = pyqtSignal(bool)  # True when entering drawing mode, False when exiting
-    
-    # Signal emitted when tool settings change
-    tool_changed = pyqtSignal(AnnotationType, tuple, float, bool)  # (type, color, stroke_width, filled)
+    drawing_mode_changed = pyqtSignal(bool)
+    tool_changed = pyqtSignal(AnnotationType, tuple, float, bool)
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("DrawingToolbar")
-        self.current_color = (255, 0, 0)  # Default: Red
+        self.current_color = (255, 0, 0)
         self.current_stroke_width = 2.0
         self.current_filled = False
         self.current_tool = AnnotationType.FREEHAND
         self.is_drawing_mode = False
         
         self.setup_ui()
-        self.hide()  # Start hidden
+        self.hide()
     
     def setup_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(8)
         
         # Drawing mode toggle
-        self.mode_button = QPushButton("Start Drawing", self)
+        self.mode_button = QToolButton(self)
+        self.mode_button.setText("Start Drawing")
         self.mode_button.setCheckable(True)
+        self.mode_button.setFixedHeight(36)
+        self.mode_button.setMinimumWidth(110)
         self.mode_button.clicked.connect(self._toggle_drawing_mode)
+        self.mode_button.setStyleSheet("""
+            QToolButton {
+                background-color: #4a9eff;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 0 12px;
+                font-weight: bold;
+            }
+            QToolButton:hover {
+                background-color: #3a8eef;
+            }
+            QToolButton:checked {
+                background-color: #ff6b6b;
+            }
+            QToolButton:checked:hover {
+                background-color: #ff5252;
+            }
+        """)
         layout.addWidget(self.mode_button)
         
         # Separator
         separator1 = QFrame()
         separator1.setFrameShape(QFrame.VLine)
         separator1.setFrameShadow(QFrame.Sunken)
+        separator1.setStyleSheet("background-color: #555555; max-width: 1px;")
         layout.addWidget(separator1)
         
-        # Tool type selector
-        tool_label = QLabel("Tool:", self)
-        layout.addWidget(tool_label)
+        # Tool selection label
+        tools_label = QLabel("Tool:", self)
+        tools_label.setStyleSheet("font-weight: bold; color: #8899AA; padding-left: 4px;")
+        layout.addWidget(tools_label)
         
-        self.freehand_radio = QRadioButton("Freehand", self)
-        self.freehand_radio.setChecked(True)
-        self.freehand_radio.toggled.connect(self._on_tool_changed)
-        layout.addWidget(self.freehand_radio)
+        # Tool buttons
+        self.tool_buttons = []
         
-        self.line_radio = QRadioButton("Line", self)
-        self.line_radio.toggled.connect(self._on_tool_changed)
-        layout.addWidget(self.line_radio)
+        self.freehand_button = self._create_tool_button("✏️", "Freehand", AnnotationType.FREEHAND, True)
+        layout.addWidget(self.freehand_button)
         
-        self.arrow_radio = QRadioButton("Arrow", self)
-        self.arrow_radio.toggled.connect(self._on_tool_changed)
-        layout.addWidget(self.arrow_radio)
+        self.line_button = self._create_tool_button("—", "Line", AnnotationType.LINE, False)
+        layout.addWidget(self.line_button)
         
-        self.rect_radio = QRadioButton("Rectangle", self)
-        self.rect_radio.toggled.connect(self._on_tool_changed)
-        layout.addWidget(self.rect_radio)
+        self.arrow_button = self._create_tool_button("→", "Arrow", AnnotationType.ARROW, False)
+        layout.addWidget(self.arrow_button)
         
-        self.circle_radio = QRadioButton("Circle", self)
-        self.circle_radio.toggled.connect(self._on_tool_changed)
-        layout.addWidget(self.circle_radio)
+        self.rect_button = self._create_tool_button("□", "Rectangle", AnnotationType.RECTANGLE, False)
+        layout.addWidget(self.rect_button)
+        
+        self.circle_button = self._create_tool_button("○", "Circle", AnnotationType.CIRCLE, False)
+        layout.addWidget(self.circle_button)
         
         # Separator
         separator2 = QFrame()
         separator2.setFrameShape(QFrame.VLine)
         separator2.setFrameShadow(QFrame.Sunken)
+        separator2.setStyleSheet("background-color: #555555; max-width: 1px;")
         layout.addWidget(separator2)
         
         # Stroke width
-        stroke_label = QLabel("Width:", self)
-        layout.addWidget(stroke_label)
+        width_label = QLabel("Width:", self)
+        width_label.setStyleSheet("color: #8899AA; padding-left: 4px;")
+        layout.addWidget(width_label)
         
         self.stroke_spinbox = QSpinBox(self)
         self.stroke_spinbox.setMinimum(1)
         self.stroke_spinbox.setMaximum(20)
         self.stroke_spinbox.setValue(2)
+        self.stroke_spinbox.setFixedWidth(60)
+        self.stroke_spinbox.setFixedHeight(32)
         self.stroke_spinbox.valueChanged.connect(self._on_stroke_changed)
         layout.addWidget(self.stroke_spinbox)
         
         # Filled checkbox
-        self.filled_checkbox = QCheckBox("Filled", self)
+        self.filled_checkbox = QCheckBox("Fill", self)
+        self.filled_checkbox.setEnabled(False)
         self.filled_checkbox.stateChanged.connect(self._on_filled_changed)
         layout.addWidget(self.filled_checkbox)
         
-        # Color picker button
-        self.color_button = QPushButton("Color", self)
+        # Color picker
+        self.color_button = QToolButton(self)
+        self.color_button.setToolTip("Choose color")
+        self.color_button.setFixedSize(36, 36)
         self.color_button.clicked.connect(self._choose_color)
-        self._update_color_button_style()
+        self._update_color_button()
         layout.addWidget(self.color_button)
         
+        layout.addSpacerItem(QSpacerItem(10, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        
         # Close button
-        self.close_button = QPushButton("Close", self)
+        self.close_button = QToolButton(self)
+        self.close_button.setText("✕")
+        self.close_button.setToolTip("Close toolbar")
+        self.close_button.setFixedSize(32, 32)
         self.close_button.clicked.connect(self._close_toolbar)
         layout.addWidget(self.close_button)
+    
+    def _create_tool_button(self, icon, tooltip, tool_type, checked):
+        """Create a tool selection button."""
+        btn = QToolButton(self)
+        btn.setText(icon)
+        btn.setToolTip(tooltip)
+        btn.setCheckable(True)
+        btn.setChecked(checked)
+        btn.setFixedSize(36, 36)
+        btn.clicked.connect(lambda: self._select_tool(tool_type, btn))
+        self.tool_buttons.append((btn, tool_type))
+        return btn
+    
+    def _select_tool(self, tool_type, button):
+        """Select a drawing tool."""
+        self.current_tool = tool_type
+        
+        # Update button states
+        for btn, _ in self.tool_buttons:
+            btn.setChecked(btn == button)
+        
+        # Enable/disable fill option for shapes
+        can_fill = tool_type in [AnnotationType.RECTANGLE, AnnotationType.CIRCLE, AnnotationType.FREEHAND]
+        self.filled_checkbox.setEnabled(can_fill)
+        
+        self._emit_tool_changed()
     
     def _toggle_drawing_mode(self):
         """Toggle between drawing mode and normal mode."""
@@ -109,32 +166,10 @@ class DrawingToolbar(QFrame):
         
         if self.is_drawing_mode:
             self.mode_button.setText("Stop Drawing")
-            self.mode_button.setStyleSheet("background-color: #ff6666;")
         else:
             self.mode_button.setText("Start Drawing")
-            self.mode_button.setStyleSheet("")
         
         self.drawing_mode_changed.emit(self.is_drawing_mode)
-    
-    def _on_tool_changed(self):
-        """Update current tool based on radio button selection."""
-        if self.freehand_radio.isChecked():
-            self.current_tool = AnnotationType.FREEHAND
-            self.filled_checkbox.setEnabled(False)
-        elif self.line_radio.isChecked():
-            self.current_tool = AnnotationType.LINE
-            self.filled_checkbox.setEnabled(False)
-        elif self.arrow_radio.isChecked():
-            self.current_tool = AnnotationType.ARROW
-            self.filled_checkbox.setEnabled(False)
-        elif self.rect_radio.isChecked():
-            self.current_tool = AnnotationType.RECTANGLE
-            self.filled_checkbox.setEnabled(True)
-        elif self.circle_radio.isChecked():
-            self.current_tool = AnnotationType.CIRCLE
-            self.filled_checkbox.setEnabled(True)
-        
-        self._emit_tool_changed()
     
     def _on_stroke_changed(self, value):
         """Update stroke width."""
@@ -153,22 +188,19 @@ class DrawingToolbar(QFrame):
         
         if color.isValid():
             self.current_color = (color.red(), color.green(), color.blue())
-            self._update_color_button_style()
+            self._update_color_button()
             self._emit_tool_changed()
     
-    def _update_color_button_style(self):
+    def _update_color_button(self):
         """Update the color button to show the current color."""
         r, g, b = self.current_color
         self.color_button.setStyleSheet(f"""
-            QPushButton {{
+            QToolButton {{
                 background-color: rgb({r}, {g}, {b});
-                color: {'#000000' if (r + g + b) > 384 else '#ffffff'};
                 border: 2px solid #555555;
                 border-radius: 4px;
-                padding: 6px 12px;
-                font-weight: bold;
             }}
-            QPushButton:hover {{
+            QToolButton:hover {{
                 border: 2px solid #777777;
             }}
         """)
