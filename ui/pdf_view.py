@@ -2,11 +2,12 @@ from PyQt5.QtCore import Qt
 from ui.page_label import ClickablePageLabel
 
 class PDFViewer:
-    def __init__(self, main_window, page_container_widget, scroll_area_widget, pdf_reader_core):
+    def __init__(self, main_window, page_container_widget, scroll_area_widget, pdf_reader_core, annotation_manager):
         self.main_window = main_window
         self.page_container = page_container_widget
         self.scroll_area = scroll_area_widget
         self.pdf_reader_core = pdf_reader_core
+        self.annotation_manager = annotation_manager
         
         # State inherited/shared from main window
         self.zoom = main_window.zoom
@@ -88,11 +89,14 @@ class PDFViewer:
                 if current_rect in rects_on_page:
                     current_idx_on_page = rects_on_page.index(current_rect)
 
+            annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
+
             label = ClickablePageLabel(self.page_container)
             label.set_page_data(
                 pix, text_data, word_data, self.zoom, self.dark_mode, 
                 search_highlights=rects_on_page, 
-                current_highlight_index=current_idx_on_page
+                current_highlight_index=current_idx_on_page,
+                annotations=annotations_on_page
             )
             label.setAlignment(Qt.AlignCenter)
             

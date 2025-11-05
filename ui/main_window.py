@@ -10,9 +10,9 @@ import pyperclip
 import os
 from core.pdf_reader import PDFDocumentReader
 from core.user_input import UserInputHandler
-# from ui.page_label import ClickablePageLabel # Not directly needed here anymore
+from core.annotation_manager import AnnotationManager
 from styles import apply_style
-from ui.pdf_view import PDFViewer # Import the new class
+from ui.pdf_view import PDFViewer
 from ui.toc_display import TOCWidget
 from helpers.locate_resources import get_resource_path
 
@@ -28,6 +28,7 @@ class MainWindow(QMainWindow): # Renamed for clarity
         
         # Core PDF reading utility
         self.pdf_reader = PDFDocumentReader()
+        self.annotation_manager = AnnotationManager()
         
         # State variables
         self.zoom = 2.2
@@ -150,7 +151,8 @@ class MainWindow(QMainWindow): # Renamed for clarity
             main_window=self, 
             page_container_widget=self.page_container,
             scroll_area_widget=self.scroll_area,
-            pdf_reader_core=self.pdf_reader
+            pdf_reader_core=self.pdf_reader,
+            annotation_manager=self.annotation_manager
         )
         
         # -----------------------------
@@ -224,6 +226,9 @@ class MainWindow(QMainWindow): # Renamed for clarity
 
         # Clear all loaded pages
         self.page_manager.clear_all()
+
+        # Clear all annotations
+        self.annotation_manager.clear_all()
 
         # Clear TOC
         self.toc_widget.clear_toc()
