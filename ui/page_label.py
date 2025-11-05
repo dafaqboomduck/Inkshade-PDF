@@ -2,6 +2,7 @@ from PyQt5.QtCore import Qt, QRect, QRectF
 from PyQt5.QtGui import QPainter, QColor, QBrush, QImage
 from PyQt5.QtWidgets import QLabel
 from core.user_input import UserInputHandler
+from core.annotation_manager import AnnotationType
 
 # Custom widget to display a page image and handle text selection
 class ClickablePageLabel(QLabel):
@@ -22,9 +23,11 @@ class ClickablePageLabel(QLabel):
         self.search_highlights = []
         self.current_search_highlight_index = -1
 
+        self.annotations = []
+
         self.input_handler = UserInputHandler(parent)
 
-    def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode, search_highlights=None, current_highlight_index=-1):
+    def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode, search_highlights=None, current_highlight_index=-1, annotations=None):
         self.setPixmap(pixmap)
         self.text_data = text_data
         self.word_data = word_data
@@ -35,6 +38,8 @@ class ClickablePageLabel(QLabel):
         
         self.search_highlights = search_highlights if search_highlights else []
         self.current_search_highlight_index = current_highlight_index
+
+        self.annotations = annotations if annotations else []
 
         self._build_line_word_map()
         self.update()
@@ -85,9 +90,6 @@ class ClickablePageLabel(QLabel):
         
         # --- Draw Search Highlights onto the buffer ---
         
-        # Draw all non-current search highlights first (optional: you might want to draw them all the same way)
-        # The original code only drew the *current* highlight, so we'll stick to that, 
-        # but adjust the color/brush logic.
         if 0 <= self.current_search_highlight_index < len(self.search_highlights):
             current_rect = self.search_highlights[self.current_search_highlight_index]
             current_highlight_rect = QRectF(
@@ -105,6 +107,40 @@ class ClickablePageLabel(QLabel):
             buf_painter.setBrush(QBrush(current_highlight_color))
             buf_painter.drawRect(current_highlight_rect)
 
+        # --- NEW: Draw Annotations onto the buffer ---
+        
+        for annotation in self.annotations:
+            # Set color based on annotation color (with some transparency)
+            color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], 100)
+            
+            if annotation.annotation_type == AnnotationType.HIGHLIGHT:
+                # Draw highlight as filled rectangles
+                buf_painter.setBrush(QBrush(color))
+                for quad in annotation.quads:
+                    # Quads are [x0, y0, x1, y1, x2, y2, x3, y3]
+                    # For highlights, we can use a simple rectangle from top-left to bottom-right
+                    rect = QRectF(
+                        quad[0] * self.zoom_level,
+                        quad[1] * self.zoom_level,
+                        (quad[4] - quad[0]) * self.zoom_level,  # width: x2 - x0
+                        (quad[5] - quad[1]) * self.zoom_level   # height: y2 - y0
+                    )
+                    buf_painter.drawRect(rect)
+            
+            elif annotation.annotation_type == AnnotationType.UNDERLINE:
+                # Draw underline as a line at the bottom of the text
+                buf_painter.setPen(color)
+                for quad in annotation.quads:
+                    # Draw line from bottom-left to bottom-right
+                    line_y = quad[7] * self.zoom_level  # y3 (bottom coordinate)
+                    buf_painter.drawLine(
+                        int(quad[0] * self.zoom_level),  # x0
+                        int(line_y),
+                        int(quad[4] * self.zoom_level),  # x2
+                        int(line_y)
+                    )
+                buf_painter.setPen(Qt.NoPen)  # Reset pen
+
         # --- Draw Text Selection Highlights onto the buffer ---
 
         if self.selection_rects:
@@ -114,14 +150,9 @@ class ClickablePageLabel(QLabel):
             else:
                 selection_color = QColor(0, 89, 195, 100) # Blue (light mode)
                 
-            # NOTE: If you want text selection to be *above* search highlights, 
-            # ensure its color is distinct or adjust the drawing order.
             buf_painter.setBrush(QBrush(selection_color))
             
             for rect in self.selection_rects:
-                # The rects in self.selection_rects are already scaled (or should be)
-                # as they are QRect objects, but let's assume they are already correct
-                # for drawing on the widget surface (which is the buffer size here).
                 buf_painter.drawRect(rect) 
         
         buf_painter.end()
