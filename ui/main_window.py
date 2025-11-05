@@ -1,10 +1,10 @@
-from PyQt5.QtCore import Qt, QTimer # Import QTimer
+from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QIntValidator, QIcon
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame,
     QMessageBox, QSpacerItem, QSizePolicy, QApplication, 
-    QDockWidget, QTreeWidget, QTreeWidgetItem
+    QDockWidget, QTreeWidget, QTreeWidgetItem, QToolButton
 )
 import pyperclip
 import os
@@ -18,31 +18,28 @@ from ui.annotation_toolbar import AnnotationToolbar
 from ui.drawing_toolbar import DrawingToolbar
 from helpers.locate_resources import get_resource_path
 
-class MainWindow(QMainWindow): # Renamed for clarity
+class MainWindow(QMainWindow):
     def __init__(self, file_path=None):
         super().__init__()
 
-        # Use the helper function to get the correct absolute path
-        icon_path = get_resource_path("resources\icons\inkshade.ico")
+        icon_path = get_resource_path("resources/icons/inkshade.ico")
         
         self.setWindowIcon(QIcon(icon_path))
         self.setWindowTitle("Inkshade PDF")
         
-        # Core PDF reading utility
         self.pdf_reader = PDFDocumentReader()
         self.annotation_manager = AnnotationManager()
         
-        # State variables
         self.zoom = 2.2
         self.base_zoom = 2.2
         self.dark_mode = True
         self.page_spacing = 30
-        self.page_height = None # Managed by PDFPageManager, but stored here for scroll calcs
-        self.loaded_pages = {} # Dictionary of currently loaded page labels: {index: ClickablePageLabel}
+        self.page_height = None
+        self.loaded_pages = {}
         self.current_page_index = 0
 
         self.input_handler = UserInputHandler(self)
-        self.page_manager = None # Will be initialized in setup_ui
+        self.page_manager = None
 
         self.toc_widget = TOCWidget()
 
@@ -52,71 +49,140 @@ class MainWindow(QMainWindow): # Renamed for clarity
         if file_path:
             self.load_pdf(file_path)
 
+    def create_icon_button(self, icon_text, tooltip, parent=None):
+        """Helper to create icon-style buttons."""
+        btn = QToolButton(parent)
+        btn.setText(icon_text)
+        btn.setToolTip(tooltip)
+        btn.setFixedSize(36, 36)
+        btn.setStyleSheet("""
+            QToolButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                font-size: 18px;
+                color: #B5B5C5;
+                padding: 0px;
+            }
+            QToolButton:hover {
+                background-color: #3e3e3e;
+            }
+            QToolButton:pressed {
+                background-color: #2e2e2e;
+            }
+        """)
+        return btn
+
     def setup_ui(self):
-        # -----------------------------
-        #         TOP TOOLBAR
-        # -----------------------------
+        # TOP TOOLBAR
         self.top_frame = QFrame()
         self.top_frame.setObjectName("TopFrame")
         self.top_layout = QHBoxLayout(self.top_frame)
-        self.top_layout.setContentsMargins(15, 10, 15, 10)
-        self.top_layout.setSpacing(15)
+        self.top_layout.setContentsMargins(10, 8, 10, 8)
+        self.top_layout.setSpacing(8)
         
-        self.open_button = QPushButton("Open PDF", self.top_frame)
+        # Open PDF Button
+        self.open_button = self.create_icon_button("📂", "Open PDF (Ctrl+O)", self.top_frame)
         self.open_button.clicked.connect(self.open_pdf)
         self.top_layout.addWidget(self.open_button)
 
+        # Close PDF Button
+        self.close_button = self.create_icon_button("✕", "Close PDF (Ctrl+W)", self.top_frame)
+        self.close_button.clicked.connect(self.close_pdf)
+        self.top_layout.addWidget(self.close_button)
+
+        # Separator
+        separator1 = QFrame()
+        separator1.setFrameShape(QFrame.VLine)
+        separator1.setFrameShadow(QFrame.Sunken)
+        separator1.setStyleSheet("background-color: #555555; max-width: 1px;")
+        self.top_layout.addWidget(separator1)
+
+        # TOC Button
+        self.toc_button = self.create_icon_button("☰", "Table of Contents", self.top_frame)
+        self.toc_button.clicked.connect(self.toggle_toc_view)
+        self.top_layout.addWidget(self.toc_button)
+
+        # Search Button
+        self.search_button = self.create_icon_button("🔍", "Search (Ctrl+F)", self.top_frame)
+        self.search_button.clicked.connect(self._show_search_bar)
+        self.top_layout.addWidget(self.search_button)
+
+        self.top_layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
+
+        # File name label
         self.file_name_label = QLabel("No PDF Loaded", self.top_frame)
         self.file_name_label.setStyleSheet("font-weight: bold; color: #8899AA;")
         self.top_layout.addWidget(self.file_name_label)
         
         self.top_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
-        # Page number controls
+        # Page controls
         self.page_edit = QLineEdit("1", self.top_frame)
         self.page_edit.setObjectName("page_input")
+        self.page_edit.setFixedWidth(50)
+        self.page_edit.setAlignment(Qt.AlignCenter)
         self.page_edit.returnPressed.connect(self.page_number_changed)
         self.top_layout.addWidget(self.page_edit)
         
         self.total_page_label = QLabel("/ 0", self.top_frame)
         self.top_layout.addWidget(self.total_page_label)
         
-        self.top_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
+        self.top_layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
+
+        # Separator
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.VLine)
+        separator2.setFrameShadow(QFrame.Sunken)
+        separator2.setStyleSheet("background-color: #555555; max-width: 1px;")
+        self.top_layout.addWidget(separator2)
+
+        self.top_layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
 
         # Zoom controls
-        self.minus_button = QPushButton("−", self.top_frame)
-        self.minus_button.setObjectName("small_button")
-        self.minus_button.clicked.connect(lambda: self.adjust_zoom(-20))
-        self.top_layout.addWidget(self.minus_button)
+        self.zoom_out_button = self.create_icon_button("−", "Zoom Out", self.top_frame)
+        self.zoom_out_button.clicked.connect(lambda: self.adjust_zoom(-20))
+        self.top_layout.addWidget(self.zoom_out_button)
         
         self.zoom_lineedit = QLineEdit("100", self.top_frame)
         self.zoom_lineedit.setObjectName("zoom_input")
+        self.zoom_lineedit.setFixedWidth(50)
+        self.zoom_lineedit.setAlignment(Qt.AlignCenter)
         self.zoom_lineedit.setValidator(QIntValidator(20, 300, self))
         self.zoom_lineedit.returnPressed.connect(self.manual_zoom_changed)
         self.top_layout.addWidget(self.zoom_lineedit)
         
-        self.plus_button = QPushButton("+", self.top_frame)
-        self.plus_button.setObjectName("small_button")
-        self.plus_button.clicked.connect(lambda: self.adjust_zoom(20))
-        self.top_layout.addWidget(self.plus_button)
+        self.zoom_in_button = self.create_icon_button("+", "Zoom In", self.top_frame)
+        self.zoom_in_button.clicked.connect(lambda: self.adjust_zoom(20))
+        self.top_layout.addWidget(self.zoom_in_button)
         
         self.top_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
-        self.toggle_button = QPushButton("Toggle Dark Mode", self.top_frame)
-        self.toggle_button.clicked.connect(self.toggle_mode)
-        self.top_layout.addWidget(self.toggle_button)
+        # Separator
+        separator3 = QFrame()
+        separator3.setFrameShape(QFrame.VLine)
+        separator3.setFrameShadow(QFrame.Sunken)
+        separator3.setStyleSheet("background-color: #555555; max-width: 1px;")
+        self.top_layout.addWidget(separator3)
 
-        self.annotate_button = QPushButton("Annotate Selection", self.top_frame)
+        self.top_layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
+
+        # Annotation button
+        self.annotate_button = self.create_icon_button("🖍️", "Annotate Selection", self.top_frame)
         self.annotate_button.clicked.connect(self.show_annotation_toolbar)
         self.top_layout.addWidget(self.annotate_button)
 
-        self.draw_button = QPushButton("Draw", self.top_frame)
+        # Draw button
+        self.draw_button = self.create_icon_button("✏️", "Draw", self.top_frame)
         self.draw_button.clicked.connect(self.show_drawing_toolbar)
         self.top_layout.addWidget(self.draw_button)
+
+        # Dark mode toggle
+        self.toggle_button = self.create_icon_button("🌙", "Toggle Dark Mode", self.top_frame)
+        self.toggle_button.clicked.connect(self.toggle_mode)
+        self.top_layout.addWidget(self.toggle_button)
         
-        # -----------------------------
-        #         SEARCH BAR
-        # -----------------------------
+        # SEARCH BAR
         self.search_frame = QFrame()
         self.search_frame.setObjectName("SearchFrame")
         self.search_layout = QHBoxLayout(self.search_frame)
@@ -147,30 +213,22 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.search_layout.addWidget(self.close_search_button)
         self.search_frame.hide()
 
-        # -----------------------------
-        #     ANNOTATION TOOLBAR
-        # -----------------------------
+        # ANNOTATION TOOLBAR
         self.annotation_toolbar = AnnotationToolbar(self)
         self.annotation_toolbar.annotation_requested.connect(self._create_annotation_from_selection)
 
-        # -----------------------------
-        #     DRAWING TOOLBAR
-        # -----------------------------
+        # DRAWING TOOLBAR
         self.drawing_toolbar = DrawingToolbar(self)
         self.drawing_toolbar.drawing_mode_changed.connect(self._on_drawing_mode_changed)
         self.drawing_toolbar.tool_changed.connect(self._on_drawing_tool_changed)
 
-
-        # -----------------------------
-        #      PAGE DISPLAY AREA
-        # -----------------------------
+        # PAGE DISPLAY AREA
         self.page_container = QWidget()
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setWidget(self.page_container)
         self.scroll_area.verticalScrollBar().valueChanged.connect(self.on_scroll)
         
-        # INITIALIZE PAGE MANAGER
         self.page_manager = PDFViewer(
             main_window=self, 
             page_container_widget=self.page_container,
@@ -179,27 +237,16 @@ class MainWindow(QMainWindow): # Renamed for clarity
             annotation_manager=self.annotation_manager
         )
         
-        # -----------------------------
-        #         TOC DOCK WIDGET
-        # -----------------------------
-
+        # TOC DOCK WIDGET
         self.toc_dock = QDockWidget("Table of Contents", self)
         self.toc_dock.setWidget(self.toc_widget)
         self.toc_dock.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.toc_dock)
-        self.toc_dock.hide() # Start hidden
+        self.toc_dock.hide()
         
-        # Connect the TOC link signal to the handler that uses precise positioning
         self.toc_widget.toc_link_clicked.connect(self._handle_toc_click)
 
-        # New: Add a button to the Top Toolbar to show/hide the TOC
-        self.toc_button = QPushButton("TOC", self.top_frame)
-        self.toc_button.clicked.connect(self.toggle_toc_view)
-        self.top_layout.insertWidget(1, self.toc_button)
-
-        # -----------------------------
-        #         MAIN LAYOUT
-        # -----------------------------
+        # MAIN LAYOUT
         main_layout = QVBoxLayout()
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -223,7 +270,6 @@ class MainWindow(QMainWindow): # Renamed for clarity
         apply_style(self, self.dark_mode)
     
     def copy_selected_text(self):
-        # NOTE: This logic assumes ClickablePageLabel is accessible via loaded_pages
         if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
             QMessageBox.warning(self, "No Page Loaded", "Please load a PDF document first.")
             return
@@ -235,7 +281,6 @@ class MainWindow(QMainWindow): # Renamed for clarity
             pyperclip.copy(selected_text)
         else:
             QMessageBox.information(self, "No Selection", "No text has been selected on the current page.")
-            
     
     def open_pdf(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
@@ -245,40 +290,26 @@ class MainWindow(QMainWindow): # Renamed for clarity
     def close_pdf(self):
         """Closes the currently loaded PDF and resets the application state."""
         if self.pdf_reader.doc is None:
-            return # No PDF is loaded
+            return
         
-         # Clear the PDF reader
         self.pdf_reader.close_document()
-
-        # Clear all loaded pages
         self.page_manager.clear_all()
-
-        # Clear all annotations
         self.annotation_manager.clear_all()
-
-        # Clear TOC
         self.toc_widget.clear_toc()
         self.toc_dock.hide()
-        self.toc_button.setVisible(False)
-
-        # Clear search
+        self.toc_button.setVisible(True)
         self._clear_search()
         self._hide_search_bar()
-
-        # Reset UI elements
+        
         self.file_name_label.setText("No PDF Loaded")
         self.total_page_label.setText("/ 0")
         self.page_edit.setText("1")
         self.page_edit.setValidator(QIntValidator(1, 1, self))
-
-        # Reset state variables
+        
         self.current_page_index = 0
         self.page_height = None
         self.loaded_pages.clear()
-
-        # Reset scroll position
         self.scroll_area.verticalScrollBar().setValue(0)
-
     
     def toggle_toc_view(self):
         """Shows or hides the TOC dock widget."""
@@ -292,8 +323,6 @@ class MainWindow(QMainWindow): # Renamed for clarity
         """Gets TOC data and loads it into the TOC widget."""
         toc_data = self.pdf_reader.get_toc()
         self.toc_widget.load_toc(toc_data)
-
-        # Hide the button if the PDF doesn't have a TOC
         has_toc = bool(toc_data)
         self.toc_button.setVisible(has_toc)
         if not has_toc:
@@ -305,38 +334,23 @@ class MainWindow(QMainWindow): # Renamed for clarity
             self.total_page_label.setText(f"/ {total_pages}")
             self.page_edit.setValidator(QIntValidator(1, total_pages, self))
             self.file_name_label.setText(os.path.basename(file_path))
-
             self.load_toc_data()
-            
             self.page_manager.clear_all()
-            
-            # 1. Reset the scroll bar to the top (position 0)
             self.scroll_area.verticalScrollBar().setValue(0)
-            
-            # 2. Ensure the current page index state matches the scroll bar
             self.current_page_index = 0            
             self.update_visible_pages()
     
     def update_visible_pages(self, desired_page=None):
-        """Delegates the page loading/unloading to the manager.
-
-        If desired_page is provided, use it (important when page_height is None).
-        """
         if desired_page is not None:
             current_page = int(desired_page)
         elif self.page_height is None:
-            # If the layout is uninitialized (i.e., new PDF or zoom/toggle clear), 
-            # use the stored page index (which is 0 after a new load).
             current_page = self.current_page_index 
         else:
-            # Otherwise, use the scroll position to determine the current page.
             current_page = self.page_manager.get_current_page_index()
-
         self.current_page_index = current_page
         self.page_manager.update_visible_pages(current_page)
 
     def update_current_page_display(self):
-        """Updates the page number input field."""
         if self.page_height is None: return
         self.current_page_index = self.page_manager.get_current_page_index()
         if not self.page_edit.hasFocus():
@@ -358,7 +372,6 @@ class MainWindow(QMainWindow): # Renamed for clarity
             self.page_edit.setText(str(self.current_page_index + 1))
 
     def get_current_page_info(self):
-        """Delegates scroll position info retrieval to the manager."""
         return self.page_manager.get_scroll_info()
     
     def manual_zoom_changed(self):
@@ -370,75 +383,60 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.zoom_lineedit.setText(str(new_zoom_percent))
         self._handle_zoom_change(new_zoom_percent)
 
-    # Helper function for delayed scroll restoration
     def _restore_scroll_position(self, current_page_index, offset_in_page):
         if self.page_height:
-            # Calculate the target scroll position directly instead of using jump_to_page
             target_y = (current_page_index * (self.page_height + self.page_spacing)) + offset_in_page
             self.scroll_area.verticalScrollBar().setValue(int(target_y))
-            
             if self.pdf_reader.search_results:
                 self._jump_to_current_search_result()
 
     def _handle_zoom_change(self, new_zoom_percent):
         try:
             current_page_index, offset_in_page = self.get_current_page_info()
-            
-            # 1. Update zoom state and manager
             self.zoom = (new_zoom_percent / 100.0) * self.base_zoom
             self.page_manager.set_zoom(self.zoom)
             
             if self.pdf_reader.doc:
-                # 2. Reset and re-render pages with new zoom
                 self.page_manager.clear_all()
-                self.update_visible_pages() # This will calculate new self.page_height
-                
-                # FIX 1: Force immediate event processing for initial layout/positioning
+                self.update_visible_pages()
                 QApplication.processEvents()
-                
-                # FIX 2: Explicitly update the container's geometry to force scroll range calculation
                 self.page_container.updateGeometry()
                 self.scroll_area.updateGeometry()
-                QApplication.processEvents() # Process any new geometry updates
-                
-                # FIX 3: Restore scroll position with a 10ms delay to ensure all painting is done.
+                QApplication.processEvents()
                 QTimer.singleShot(10, lambda: self._restore_scroll_position(current_page_index, offset_in_page))
-                
         except (ValueError, IndexError):
             current_zoom_percent = int((self.zoom / self.base_zoom) * 100)
             self.zoom_lineedit.setText(str(current_zoom_percent))
 
     def toggle_mode(self):
         self.dark_mode = not self.dark_mode
+        
+        # Update icon based on mode
+        if self.dark_mode:
+            self.toggle_button.setText("🌙")
+            self.toggle_button.setToolTip("Switch to Light Mode")
+        else:
+            self.toggle_button.setText("☀️")
+            self.toggle_button.setToolTip("Switch to Dark Mode")
+        
         self.apply_style()
         self.page_manager.set_dark_mode(self.dark_mode)
 
         if self.pdf_reader.doc:
-            # capture where we were BEFORE clearing pages
             current_page_index, offset_in_page = self.get_current_page_info()
-
-            # clear pages and force reload *centered on the saved current page*
             self.page_manager.clear_all()
             self.update_visible_pages(desired_page=current_page_index)
 
-            # Defer scroll restoration until layout/paint has a chance to run
             def _restore():
-                # restore exact scroll position (uses your helper)
                 self._restore_scroll_position(current_page_index, offset_in_page)
-
-                # force a repaint of the visible label + viewport
                 lbl = self.loaded_pages.get(self.current_page_index)
                 if lbl:
                     lbl.repaint()
                 self.page_container.repaint()
                 self.scroll_area.viewport().repaint()
-
             QTimer.singleShot(0, _restore)
 
-
-
-    # --- SEARCH METHODS ---
-
+    # SEARCH METHODS
     def _show_search_bar(self):
         self.search_frame.show()
         self.search_input.setFocus()
@@ -456,7 +454,7 @@ class MainWindow(QMainWindow): # Renamed for clarity
             self._find_next()
         else:
             self.search_status_label.setText("0 results")
-            self.page_manager.update_page_highlights() # Use manager for update
+            self.page_manager.update_page_highlights()
 
     def _find_next(self):
         self.pdf_reader.next_search_result()
@@ -468,10 +466,7 @@ class MainWindow(QMainWindow): # Renamed for clarity
 
     def _jump_to_current_search_result(self):
         page_idx, rect = self.pdf_reader.get_search_result_info()
-        
-        # Delegate the scrolling and highlighting to the manager
         self.page_manager.jump_to_search_result(page_idx, rect)
-        
         if page_idx is not None:
             self.search_status_label.setText(f"{self.pdf_reader.current_search_index + 1} of {len(self.pdf_reader.search_results)}")
 
@@ -479,11 +474,9 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.pdf_reader._clear_search()
         self.search_input.clear()
         self.search_status_label.setText("")
-        self.page_manager.update_page_highlights() # Use manager for update
+        self.page_manager.update_page_highlights()
 
     def _create_annotation_from_selection(self, annotation_type, color):
-        """Create an annotation from the currently selected text."""
-        
         if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
             return
         
@@ -494,7 +487,6 @@ class MainWindow(QMainWindow): # Renamed for clarity
             QMessageBox.information(self, "No Selection", "Please select text before creating an annotation.")
             return
         
-        # Convert selected words to quads
         quads = self._words_to_quads(selected_words)
                 
         if quads:
@@ -506,17 +498,12 @@ class MainWindow(QMainWindow): # Renamed for clarity
                 quads=quads
             )
             self.annotation_manager.add_annotation(annotation)
-                        
-            # Clear selection and refresh the page
             current_page_widget.selected_words.clear()
             current_page_widget.selection_rects = []
             self._refresh_current_page()
 
     def _words_to_quads(self, selected_words):
-        """Convert selected words to quad coordinates."""
         quads = []
-        
-        # Group words by line
         lines = {}
         for word_info in selected_words:
             line_key = (word_info[5], word_info[6])
@@ -524,50 +511,35 @@ class MainWindow(QMainWindow): # Renamed for clarity
                 lines[line_key] = []
             lines[line_key].append(word_info)
         
-        # Create a quad for each line
         for line_key, words_in_line in lines.items():
-            words_in_line.sort(key=lambda x: x[0])  # Sort by x0
-            
+            words_in_line.sort(key=lambda x: x[0])
             min_x = min(word[0] for word in words_in_line)
             max_x = max(word[2] for word in words_in_line)
             min_y = min(word[1] for word in words_in_line)
             max_y = max(word[3] for word in words_in_line)
-            
-            # Create quad: [x0, y0, x1, y1, x2, y2, x3, y3]
-            # Top-left, top-right, bottom-left, bottom-right
             quad = [min_x, min_y, max_x, min_y, min_x, max_y, max_x, max_y]
             quads.append(quad)
-        
         return quads
 
     def _refresh_current_page(self):
-        """Refresh the display of the current page to show new annotations."""
         if self.current_page_index in self.loaded_pages:
-            # Remove and reload the current page
             self.loaded_pages[self.current_page_index].deleteLater()
             del self.loaded_pages[self.current_page_index]
             self.page_manager.update_visible_pages(self.current_page_index)
 
     def show_annotation_toolbar(self):
-        """Show the annotation toolbar."""
         self.annotation_toolbar.show()
 
     def show_drawing_toolbar(self):
-        """Show the drawing toolbar."""
         self.drawing_toolbar.show()
 
     def _on_drawing_mode_changed(self, enabled):
-        """Handle drawing mode toggle."""
-        # Update all loaded page labels
         tool_settings = self.drawing_toolbar.get_current_settings()
         tool, color, stroke_width, filled = tool_settings
-        
         for label in self.loaded_pages.values():
             label.set_drawing_mode(enabled, tool, color, stroke_width, filled)
 
     def _on_drawing_tool_changed(self, tool, color, stroke_width, filled):
-        """Handle tool settings change."""
-        # Update all loaded page labels
         for label in self.loaded_pages.values():
             label.set_drawing_mode(
                 self.drawing_toolbar.is_in_drawing_mode(),
