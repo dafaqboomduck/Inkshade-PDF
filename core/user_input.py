@@ -27,6 +27,9 @@ class UserInputHandler:
         elif event.matches(QKeySequence.Open):
             self.main_window.open_pdf()
             event.accept()
+        elif event.matches(QKeySequence.Close):
+            self.main_window.close_pdf()
+            event.accept()
         elif event.key() == Qt.Key_Escape:
             if self.main_window.search_frame.isVisible():
                 self.main_window._hide_search_bar()

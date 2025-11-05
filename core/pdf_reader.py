@@ -25,6 +25,14 @@ class PDFDocumentReader:
         except Exception as e:
             QMessageBox.critical(None, "Error", f"Error loading PDF: {e}")
             return False, 0
+        
+    def close_document(self):
+        """Closes the current PDF document and clears all state."""
+        if self.doc:
+            self.doc.close()
+            self.doc = None
+        self.total_pages = 0
+        self._clear_search()
 
     def render_page(self, page_index, zoom_level, dark_mode):
         """Renders a single page of the PDF to a pixmap and extracts its text and word data."""

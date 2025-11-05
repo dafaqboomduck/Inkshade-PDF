@@ -53,3 +53,8 @@ class TOCWidget(QTreeWidget):
             item_stack = {k: v for k, v in item_stack.items() if k <= level}
 
         self.expandAll()
+    
+    def clear_toc(self):
+        """Clears all TOC items."""
+        self.clear()
+        self.invisibleRootItem().takeChildren()
