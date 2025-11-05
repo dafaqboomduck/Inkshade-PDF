@@ -1,5 +1,5 @@
 from PyQt5.QtCore import Qt, QTimer, QSize
-from PyQt5.QtGui import QIntValidator, QIcon
+from PyQt5.QtGui import QIntValidator, QIcon, QPixmap, QPainter, QColor
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame,
@@ -49,10 +49,36 @@ class MainWindow(QMainWindow):
         if file_path:
             self.load_pdf(file_path)
 
-    def create_icon_button(self, icon_text, tooltip, parent=None):
-        """Helper to create icon-style buttons."""
+    def create_icon_button(self, icon_path, tooltip, parent=None):
+        """Helper to create icon-style buttons with image icons."""
         btn = QToolButton(parent)
-        btn.setText(icon_text)
+        
+        # Load icon if path provided, otherwise use text fallback
+        if icon_path and os.path.exists(get_resource_path(icon_path)):
+            # Load the original pixmap
+            pixmap = QPixmap(get_resource_path(icon_path))
+            
+            # Create a new pixmap with the desired color
+            colored_pixmap = QPixmap(pixmap.size())
+            colored_pixmap.fill(Qt.transparent)
+            
+            # Paint the icon in the desired color
+            painter = QPainter(colored_pixmap)
+            painter.setCompositionMode(QPainter.CompositionMode_Source)
+            painter.drawPixmap(0, 0, pixmap)
+            painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+            
+            # Use different colors based on dark mode
+            if self.dark_mode:
+                painter.fillRect(colored_pixmap.rect(), QColor(181, 181, 197))  # Light gray for dark mode
+            else:
+                painter.fillRect(colored_pixmap.rect(), QColor(122, 137, 156))  # Darker gray for light mode
+            painter.end()
+            
+            icon = QIcon(colored_pixmap)
+            btn.setIcon(icon)
+            btn.setIconSize(QSize(20, 20))
+        
         btn.setToolTip(tooltip)
         btn.setFixedSize(36, 36)
         btn.setStyleSheet("""
@@ -60,7 +86,6 @@ class MainWindow(QMainWindow):
                 background-color: transparent;
                 border: none;
                 border-radius: 4px;
-                font-size: 18px;
                 color: #B5B5C5;
                 padding: 0px;
             }
@@ -81,15 +106,20 @@ class MainWindow(QMainWindow):
         self.top_layout.setContentsMargins(10, 8, 10, 8)
         self.top_layout.setSpacing(8)
         
+        # Store button references for later color updates
+        self.icon_buttons = []
+        
         # Open PDF Button
-        self.open_button = self.create_icon_button("📂", "Open PDF (Ctrl+O)", self.top_frame)
+        self.open_button = self.create_icon_button("resources/icons/open-icon.png", "Open PDF (Ctrl+O)", self.top_frame)
         self.open_button.clicked.connect(self.open_pdf)
         self.top_layout.addWidget(self.open_button)
+        self.icon_buttons.append((self.open_button, "resources/icons/open-icon.png"))
 
         # Close PDF Button
-        self.close_button = self.create_icon_button("✕", "Close PDF (Ctrl+W)", self.top_frame)
+        self.close_button = self.create_icon_button("resources/icons/close-icon.png", "Close PDF (Ctrl+W)", self.top_frame)
         self.close_button.clicked.connect(self.close_pdf)
         self.top_layout.addWidget(self.close_button)
+        self.icon_buttons.append((self.close_button, "resources/icons/close-icon.png"))
 
         # Separator
         separator1 = QFrame()
@@ -99,14 +129,16 @@ class MainWindow(QMainWindow):
         self.top_layout.addWidget(separator1)
 
         # TOC Button
-        self.toc_button = self.create_icon_button("☰", "Table of Contents", self.top_frame)
+        self.toc_button = self.create_icon_button("resources/icons/toc-icon.png", "Table of Contents", self.top_frame)
         self.toc_button.clicked.connect(self.toggle_toc_view)
         self.top_layout.addWidget(self.toc_button)
+        self.icon_buttons.append((self.toc_button, "resources/icons/toc-icon.png"))
 
         # Search Button
-        self.search_button = self.create_icon_button("🔍", "Search (Ctrl+F)", self.top_frame)
+        self.search_button = self.create_icon_button("resources/icons/search-icon.png", "Search (Ctrl+F)", self.top_frame)
         self.search_button.clicked.connect(self._show_search_bar)
         self.top_layout.addWidget(self.search_button)
+        self.icon_buttons.append((self.search_button, "resources/icons/search-icon.png"))
 
         self.top_layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
 
@@ -140,9 +172,10 @@ class MainWindow(QMainWindow):
         self.top_layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
 
         # Zoom controls
-        self.zoom_out_button = self.create_icon_button("−", "Zoom Out", self.top_frame)
+        self.zoom_out_button = self.create_icon_button("resources/icons/minus-icon.png", "Zoom Out", self.top_frame)
         self.zoom_out_button.clicked.connect(lambda: self.adjust_zoom(-20))
         self.top_layout.addWidget(self.zoom_out_button)
+        self.icon_buttons.append((self.zoom_out_button, "resources/icons/minus-icon.png"))
         
         self.zoom_lineedit = QLineEdit("100", self.top_frame)
         self.zoom_lineedit.setObjectName("zoom_input")
@@ -152,9 +185,10 @@ class MainWindow(QMainWindow):
         self.zoom_lineedit.returnPressed.connect(self.manual_zoom_changed)
         self.top_layout.addWidget(self.zoom_lineedit)
         
-        self.zoom_in_button = self.create_icon_button("+", "Zoom In", self.top_frame)
+        self.zoom_in_button = self.create_icon_button("resources/icons/plus-icon.png", "Zoom In", self.top_frame)
         self.zoom_in_button.clicked.connect(lambda: self.adjust_zoom(20))
         self.top_layout.addWidget(self.zoom_in_button)
+        self.icon_buttons.append((self.zoom_in_button, "resources/icons/plus-icon.png"))
         
         self.top_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
@@ -168,17 +202,19 @@ class MainWindow(QMainWindow):
         self.top_layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
 
         # Annotation button
-        self.annotate_button = self.create_icon_button("🖍️", "Annotate Selection", self.top_frame)
+        self.annotate_button = self.create_icon_button("resources/icons/annotate-icon.png", "Annotate Selection", self.top_frame)
         self.annotate_button.clicked.connect(self.show_annotation_toolbar)
         self.top_layout.addWidget(self.annotate_button)
+        self.icon_buttons.append((self.annotate_button, "resources/icons/annotate-icon.png"))
 
         # Draw button
-        self.draw_button = self.create_icon_button("✏️", "Draw", self.top_frame)
+        self.draw_button = self.create_icon_button("resources/icons/draw-icon.png", "Draw", self.top_frame)
         self.draw_button.clicked.connect(self.show_drawing_toolbar)
         self.top_layout.addWidget(self.draw_button)
+        self.icon_buttons.append((self.draw_button, "resources/icons/draw-icon.png"))
 
         # Dark mode toggle
-        self.toggle_button = self.create_icon_button("🌙", "Toggle Dark Mode", self.top_frame)
+        self.toggle_button = self.create_icon_button("resources/icons/dark-mode-icon.png", "Toggle Dark Mode", self.top_frame)
         self.toggle_button.clicked.connect(self.toggle_mode)
         self.top_layout.addWidget(self.toggle_button)
         
@@ -237,16 +273,26 @@ class MainWindow(QMainWindow):
             annotation_manager=self.annotation_manager
         )
         
-        # TOC DOCK WIDGET
-        self.toc_dock = QDockWidget("Table of Contents", self)
-        self.toc_dock.setWidget(self.toc_widget)
-        self.toc_dock.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable)
-        self.addDockWidget(Qt.LeftDockWidgetArea, self.toc_dock)
-        self.toc_dock.hide()
-        
+        # TOC WIDGET (not a dock, just a regular widget)
         self.toc_widget.toc_link_clicked.connect(self._handle_toc_click)
+        self.toc_widget.hide()  # Start hidden
 
-        # MAIN LAYOUT
+        # MAIN LAYOUT - Create horizontal layout for TOC and content area
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(0)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Add TOC on the left
+        content_layout.addWidget(self.toc_widget)
+        
+        # Add scroll area on the right
+        content_layout.addWidget(self.scroll_area)
+        
+        # Content widget to hold the horizontal layout
+        content_widget = QWidget()
+        content_widget.setLayout(content_layout)
+        
+        # Main vertical layout
         main_layout = QVBoxLayout()
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -254,7 +300,8 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.search_frame)
         main_layout.addWidget(self.annotation_toolbar)
         main_layout.addWidget(self.drawing_toolbar)
-        main_layout.addWidget(self.scroll_area)
+        main_layout.addWidget(content_widget)
+        
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
@@ -268,6 +315,36 @@ class MainWindow(QMainWindow):
 
     def apply_style(self):
         apply_style(self, self.dark_mode)
+        # Update icon colors when style changes
+        if hasattr(self, 'icon_buttons'):
+            self.update_icon_colors()
+    
+    def update_icon_colors(self):
+        """Update all icon colors based on current dark mode setting."""
+        for btn, icon_path in self.icon_buttons:
+            if os.path.exists(get_resource_path(icon_path)):
+                # Load the original pixmap
+                pixmap = QPixmap(get_resource_path(icon_path))
+                
+                # Create a new pixmap with the desired color
+                colored_pixmap = QPixmap(pixmap.size())
+                colored_pixmap.fill(Qt.transparent)
+                
+                # Paint the icon in the desired color
+                painter = QPainter(colored_pixmap)
+                painter.setCompositionMode(QPainter.CompositionMode_Source)
+                painter.drawPixmap(0, 0, pixmap)
+                painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+                
+                # Use different colors based on dark mode
+                if self.dark_mode:
+                    painter.fillRect(colored_pixmap.rect(), QColor(181, 181, 197))  # Light gray for dark mode
+                else:
+                    painter.fillRect(colored_pixmap.rect(), QColor(122, 137, 156))  # Darker gray for light mode
+                painter.end()
+                
+                icon = QIcon(colored_pixmap)
+                btn.setIcon(icon)
     
     def copy_selected_text(self):
         if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
@@ -296,7 +373,7 @@ class MainWindow(QMainWindow):
         self.page_manager.clear_all()
         self.annotation_manager.clear_all()
         self.toc_widget.clear_toc()
-        self.toc_dock.hide()
+        self.toc_widget.hide()
         self.toc_button.setVisible(True)
         self._clear_search()
         self._hide_search_bar()
@@ -312,11 +389,11 @@ class MainWindow(QMainWindow):
         self.scroll_area.verticalScrollBar().setValue(0)
     
     def toggle_toc_view(self):
-        """Shows or hides the TOC dock widget."""
-        if self.toc_dock.isVisible():
-            self.toc_dock.hide()
+        """Shows or hides the TOC widget."""
+        if self.toc_widget.isVisible():
+            self.toc_widget.hide()
         else:
-            self.toc_dock.show()
+            self.toc_widget.show()
             self.load_toc_data()
 
     def load_toc_data(self):
@@ -326,7 +403,7 @@ class MainWindow(QMainWindow):
         has_toc = bool(toc_data)
         self.toc_button.setVisible(has_toc)
         if not has_toc:
-            self.toc_dock.hide()
+            self.toc_widget.hide()
     
     def load_pdf(self, file_path):
         success, total_pages = self.pdf_reader.load_pdf(file_path)
@@ -413,10 +490,12 @@ class MainWindow(QMainWindow):
         
         # Update icon based on mode
         if self.dark_mode:
-            self.toggle_button.setText("🌙")
+            icon = QIcon(get_resource_path("resources/icons/dark-mode-icon.png"))
+            self.toggle_button.setIcon(icon)
             self.toggle_button.setToolTip("Switch to Light Mode")
         else:
-            self.toggle_button.setText("☀️")
+            icon = QIcon(get_resource_path("resources/icons/light-mode-icon.png"))
+            self.toggle_button.setIcon(icon)
             self.toggle_button.setToolTip("Switch to Dark Mode")
         
         self.apply_style()
