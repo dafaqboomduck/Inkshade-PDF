@@ -16,6 +16,7 @@ from ui.pdf_view import PDFViewer
 from ui.toc_display import TOCWidget
 from ui.annotation_toolbar import AnnotationToolbar
 from ui.drawing_toolbar import DrawingToolbar
+from ui.search_bar import SearchBar
 from helpers.locate_resources import get_resource_path
 
 class MainWindow(QMainWindow):
@@ -172,10 +173,10 @@ class MainWindow(QMainWindow):
         self.top_layout.addSpacerItem(QSpacerItem(15, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
 
         # Zoom controls
-        self.zoom_out_button = self.create_icon_button("resources/icons/minus-icon.png", "Zoom Out", self.top_frame)
+        self.zoom_out_button = self.create_icon_button("resources/icons/zoom-out-icon.png", "Zoom Out", self.top_frame)
         self.zoom_out_button.clicked.connect(lambda: self.adjust_zoom(-20))
         self.top_layout.addWidget(self.zoom_out_button)
-        self.icon_buttons.append((self.zoom_out_button, "resources/icons/minus-icon.png"))
+        self.icon_buttons.append((self.zoom_out_button, "resources/icons/zoom-out-icon.png"))
         
         self.zoom_lineedit = QLineEdit("100", self.top_frame)
         self.zoom_lineedit.setObjectName("zoom_input")
@@ -185,10 +186,10 @@ class MainWindow(QMainWindow):
         self.zoom_lineedit.returnPressed.connect(self.manual_zoom_changed)
         self.top_layout.addWidget(self.zoom_lineedit)
         
-        self.zoom_in_button = self.create_icon_button("resources/icons/plus-icon.png", "Zoom In", self.top_frame)
+        self.zoom_in_button = self.create_icon_button("resources/icons/zoom-in-icon.png", "Zoom In", self.top_frame)
         self.zoom_in_button.clicked.connect(lambda: self.adjust_zoom(20))
         self.top_layout.addWidget(self.zoom_in_button)
-        self.icon_buttons.append((self.zoom_in_button, "resources/icons/plus-icon.png"))
+        self.icon_buttons.append((self.zoom_in_button, "resources/icons/zoom-in-icon.png"))
         
         self.top_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
@@ -219,35 +220,11 @@ class MainWindow(QMainWindow):
         self.top_layout.addWidget(self.toggle_button)
         
         # SEARCH BAR
-        self.search_frame = QFrame()
-        self.search_frame.setObjectName("SearchFrame")
-        self.search_layout = QHBoxLayout(self.search_frame)
-        self.search_layout.setContentsMargins(15, 10, 15, 10)
-        self.search_layout.setSpacing(10)
-        
-        self.search_input = QLineEdit(self.search_frame)
-        self.search_input.setPlaceholderText("Search document...")
-        self.search_input.returnPressed.connect(self._execute_search)
-        self.search_layout.addWidget(self.search_input)
-
-        self.search_status_label = QLabel("", self.search_frame)
-        self.search_layout.addWidget(self.search_status_label)
-        
-        self.search_layout.addSpacerItem(QSpacerItem(10, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        
-        self.prev_button = QPushButton("Previous", self.search_frame)
-        self.prev_button.clicked.connect(self._find_prev)
-        self.search_layout.addWidget(self.prev_button)
-
-        self.next_button = QPushButton("Next", self.search_frame)
-        self.next_button.clicked.connect(self._find_next)
-        self.search_layout.addWidget(self.next_button)
-
-        self.close_search_button = QPushButton("X", self.search_frame)
-        self.close_search_button.setObjectName("small_button")
-        self.close_search_button.clicked.connect(self._hide_search_bar)
-        self.search_layout.addWidget(self.close_search_button)
-        self.search_frame.hide()
+        self.search_bar = SearchBar(self)
+        self.search_bar.search_requested.connect(self._execute_search)
+        self.search_bar.next_result_requested.connect(self._find_next)
+        self.search_bar.prev_result_requested.connect(self._find_prev)
+        self.search_bar.close_requested.connect(self._clear_search)
 
         # ANNOTATION TOOLBAR
         self.annotation_toolbar = AnnotationToolbar(self)
@@ -297,7 +274,7 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.top_frame)
-        main_layout.addWidget(self.search_frame)
+        main_layout.addWidget(self.search_bar)
         main_layout.addWidget(self.annotation_toolbar)
         main_layout.addWidget(self.drawing_toolbar)
         main_layout.addWidget(content_widget)
@@ -517,22 +494,24 @@ class MainWindow(QMainWindow):
 
     # SEARCH METHODS
     def _show_search_bar(self):
-        self.search_frame.show()
-        self.search_input.setFocus()
-        self.search_input.selectAll()
+        self.search_bar.show_bar()
 
     def _hide_search_bar(self):
-        self.search_frame.hide()
+        self.search_bar.hide()
         self._clear_search()
 
-    def _execute_search(self):
-        search_term = self.search_input.text()
+    def _execute_search(self, search_term):
+        if not search_term:
+            self.search_bar.set_status("0 results")
+            self.page_manager.update_page_highlights()
+            return
+            
         num_results = self.pdf_reader.execute_search(search_term)
         
         if num_results > 0:
             self._find_next()
         else:
-            self.search_status_label.setText("0 results")
+            self.search_bar.set_status("0 results")
             self.page_manager.update_page_highlights()
 
     def _find_next(self):
@@ -547,12 +526,11 @@ class MainWindow(QMainWindow):
         page_idx, rect = self.pdf_reader.get_search_result_info()
         self.page_manager.jump_to_search_result(page_idx, rect)
         if page_idx is not None:
-            self.search_status_label.setText(f"{self.pdf_reader.current_search_index + 1} of {len(self.pdf_reader.search_results)}")
+            self.search_bar.set_status(f"{self.pdf_reader.current_search_index + 1} of {len(self.pdf_reader.search_results)}")
 
     def _clear_search(self):
         self.pdf_reader._clear_search()
-        self.search_input.clear()
-        self.search_status_label.setText("")
+        self.search_bar.clear_search()
         self.page_manager.update_page_highlights()
 
     def _create_annotation_from_selection(self, annotation_type, color):
