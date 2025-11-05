@@ -124,6 +124,13 @@ def apply_style(widget: QWidget, dark_mode: bool):
                 background-color: #2e2e2e;
                 border: none;
             }
+
+            /* --- FLOATING TOOLBARS (DARK MODE) --- */
+            #SearchBar, #AnnotationToolbar, #DrawingToolbar {
+                background-color: #2e2e2e;
+                border: 1px solid #3e3e3e;
+                border-radius: 8px;
+            }
         """
     else: # Light Mode
         style_sheet = """
@@ -243,6 +250,13 @@ def apply_style(widget: QWidget, dark_mode: bool):
             QScrollArea {
                 background-color: #f0f0f0;
                 border: none;
+            }
+
+            /* --- FLOATING TOOLBARS (LIGHT MODE) --- */
+            #SearchBar, #AnnotationToolbar, #DrawingToolbar {
+                background-color: #ffffff;
+                border: 1px solid #d0d0d0;
+                border-radius: 8px;
             }
         """
     widget.setStyleSheet(style_sheet)

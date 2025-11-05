@@ -302,6 +302,14 @@ class MainWindow(QMainWindow):
         # Update icon colors when style changes
         if hasattr(self, 'icon_buttons'):
             self.update_icon_colors()
+        
+        # Update toolbar styles
+        if hasattr(self, 'search_bar'):
+            apply_style(self.search_bar, self.dark_mode)
+        if hasattr(self, 'annotation_toolbar'):
+            apply_style(self.annotation_toolbar, self.dark_mode)
+        if hasattr(self, 'drawing_toolbar'):
+            apply_style(self.drawing_toolbar, self.dark_mode)
     
     def update_icon_colors(self):
         """Update all icon colors based on current dark mode setting."""

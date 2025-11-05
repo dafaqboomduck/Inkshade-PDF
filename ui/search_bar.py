@@ -80,15 +80,6 @@ class SearchBar(QFrame):
         
         main_layout.addLayout(nav_layout)
         
-        # Style the frame
-        self.setStyleSheet("""
-            #SearchBar {
-                background-color: #2e2e2e;
-                border: 1px solid #3e3e3e;
-                border-radius: 8px;
-            }
-        """)
-        
         # Add shadow effect for better visibility
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(20)
