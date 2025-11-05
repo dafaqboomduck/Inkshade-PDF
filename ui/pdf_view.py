@@ -99,6 +99,11 @@ class PDFViewer:
                 current_highlight_index=current_idx_on_page,
                 annotations=annotations_on_page
             )
+            if hasattr(self.main_window, 'drawing_toolbar') and self.main_window.drawing_toolbar.is_in_drawing_mode():
+                tool_settings = self.main_window.drawing_toolbar.get_current_settings()
+                tool, color, stroke_width, filled = tool_settings
+                label.set_drawing_mode(True, tool, color, stroke_width, filled)
+            
             label.setAlignment(Qt.AlignCenter)
             
             if self.page_height is None:

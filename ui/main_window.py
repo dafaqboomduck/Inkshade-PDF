@@ -15,6 +15,7 @@ from styles import apply_style
 from ui.pdf_view import PDFViewer
 from ui.toc_display import TOCWidget
 from ui.annotation_toolbar import AnnotationToolbar
+from ui.drawing_toolbar import DrawingToolbar
 from helpers.locate_resources import get_resource_path
 
 class MainWindow(QMainWindow): # Renamed for clarity
@@ -108,6 +109,10 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.annotate_button = QPushButton("Annotate Selection", self.top_frame)
         self.annotate_button.clicked.connect(self.show_annotation_toolbar)
         self.top_layout.addWidget(self.annotate_button)
+
+        self.draw_button = QPushButton("Draw", self.top_frame)
+        self.draw_button.clicked.connect(self.show_drawing_toolbar)
+        self.top_layout.addWidget(self.draw_button)
         
         # -----------------------------
         #         SEARCH BAR
@@ -147,6 +152,13 @@ class MainWindow(QMainWindow): # Renamed for clarity
         # -----------------------------
         self.annotation_toolbar = AnnotationToolbar(self)
         self.annotation_toolbar.annotation_requested.connect(self._create_annotation_from_selection)
+
+        # -----------------------------
+        #     DRAWING TOOLBAR
+        # -----------------------------
+        self.drawing_toolbar = DrawingToolbar(self)
+        self.drawing_toolbar.drawing_mode_changed.connect(self._on_drawing_mode_changed)
+        self.drawing_toolbar.tool_changed.connect(self._on_drawing_tool_changed)
 
 
         # -----------------------------
@@ -194,6 +206,7 @@ class MainWindow(QMainWindow): # Renamed for clarity
         main_layout.addWidget(self.top_frame)
         main_layout.addWidget(self.search_frame)
         main_layout.addWidget(self.annotation_toolbar)
+        main_layout.addWidget(self.drawing_toolbar)
         main_layout.addWidget(self.scroll_area)
         container = QWidget()
         container.setLayout(main_layout)
@@ -538,3 +551,25 @@ class MainWindow(QMainWindow): # Renamed for clarity
     def show_annotation_toolbar(self):
         """Show the annotation toolbar."""
         self.annotation_toolbar.show()
+
+    def show_drawing_toolbar(self):
+        """Show the drawing toolbar."""
+        self.drawing_toolbar.show()
+
+    def _on_drawing_mode_changed(self, enabled):
+        """Handle drawing mode toggle."""
+        # Update all loaded page labels
+        tool_settings = self.drawing_toolbar.get_current_settings()
+        tool, color, stroke_width, filled = tool_settings
+        
+        for label in self.loaded_pages.values():
+            label.set_drawing_mode(enabled, tool, color, stroke_width, filled)
+
+    def _on_drawing_tool_changed(self, tool, color, stroke_width, filled):
+        """Handle tool settings change."""
+        # Update all loaded page labels
+        for label in self.loaded_pages.values():
+            label.set_drawing_mode(
+                self.drawing_toolbar.is_in_drawing_mode(),
+                tool, color, stroke_width, filled
+            )
