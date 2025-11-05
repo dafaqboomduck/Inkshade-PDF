@@ -175,15 +175,6 @@ class DrawingToolbar(QFrame):
         
         main_layout.addStretch()
         
-        # Style the frame
-        self.setStyleSheet("""
-            #DrawingToolbar {
-                background-color: #2e2e2e;
-                border: 1px solid #3e3e3e;
-                border-radius: 8px;
-            }
-        """)
-        
         # Add shadow
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(20)
