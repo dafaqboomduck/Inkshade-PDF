@@ -14,6 +14,7 @@ from core.annotation_manager import AnnotationManager
 from styles import apply_style
 from ui.pdf_view import PDFViewer
 from ui.toc_display import TOCWidget
+from ui.annotation_toolbar import AnnotationToolbar
 from helpers.locate_resources import get_resource_path
 
 class MainWindow(QMainWindow): # Renamed for clarity
@@ -103,6 +104,10 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.toggle_button = QPushButton("Toggle Dark Mode", self.top_frame)
         self.toggle_button.clicked.connect(self.toggle_mode)
         self.top_layout.addWidget(self.toggle_button)
+
+        self.annotate_button = QPushButton("Annotate Selection", self.top_frame)
+        self.annotate_button.clicked.connect(self.show_annotation_toolbar)
+        self.top_layout.addWidget(self.annotate_button)
         
         # -----------------------------
         #         SEARCH BAR
@@ -136,6 +141,13 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.close_search_button.clicked.connect(self._hide_search_bar)
         self.search_layout.addWidget(self.close_search_button)
         self.search_frame.hide()
+
+        # -----------------------------
+        #     ANNOTATION TOOLBAR
+        # -----------------------------
+        self.annotation_toolbar = AnnotationToolbar(self)
+        self.annotation_toolbar.annotation_requested.connect(self._create_annotation_from_selection)
+
 
         # -----------------------------
         #      PAGE DISPLAY AREA
@@ -181,6 +193,7 @@ class MainWindow(QMainWindow): # Renamed for clarity
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.top_frame)
         main_layout.addWidget(self.search_frame)
+        main_layout.addWidget(self.annotation_toolbar)
         main_layout.addWidget(self.scroll_area)
         container = QWidget()
         container.setLayout(main_layout)
@@ -454,3 +467,78 @@ class MainWindow(QMainWindow): # Renamed for clarity
         self.search_input.clear()
         self.search_status_label.setText("")
         self.page_manager.update_page_highlights() # Use manager for update
+
+    def _create_annotation_from_selection(self, annotation_type, color):
+        """Create an annotation from the currently selected text."""
+        print("DEBUG: _create_annotation_from_selection called")
+        
+        if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
+            print("DEBUG: No PDF loaded or page not in loaded_pages")
+            return
+        
+        current_page_widget = self.loaded_pages[self.current_page_index]
+        selected_words = current_page_widget.selected_words
+                
+        if not selected_words:
+            QMessageBox.information(self, "No Selection", "Please select text before creating an annotation.")
+            return
+        
+        # Convert selected words to quads
+        quads = self._words_to_quads(selected_words)
+                
+        if quads:
+            from helpers.annotations import Annotation
+            annotation = Annotation(
+                page_index=self.current_page_index,
+                annotation_type=annotation_type,
+                color=color,
+                quads=quads
+            )
+            self.annotation_manager.add_annotation(annotation)
+                        
+            # Clear selection and refresh the page
+            current_page_widget.selected_words.clear()
+            current_page_widget.selection_rects = []
+            self._refresh_current_page()
+            
+            print("DEBUG: Page refreshed")
+
+    def _words_to_quads(self, selected_words):
+        """Convert selected words to quad coordinates."""
+        quads = []
+        
+        # Group words by line
+        lines = {}
+        for word_info in selected_words:
+            line_key = (word_info[5], word_info[6])
+            if line_key not in lines:
+                lines[line_key] = []
+            lines[line_key].append(word_info)
+        
+        # Create a quad for each line
+        for line_key, words_in_line in lines.items():
+            words_in_line.sort(key=lambda x: x[0])  # Sort by x0
+            
+            min_x = min(word[0] for word in words_in_line)
+            max_x = max(word[2] for word in words_in_line)
+            min_y = min(word[1] for word in words_in_line)
+            max_y = max(word[3] for word in words_in_line)
+            
+            # Create quad: [x0, y0, x1, y1, x2, y2, x3, y3]
+            # Top-left, top-right, bottom-left, bottom-right
+            quad = [min_x, min_y, max_x, min_y, min_x, max_y, max_x, max_y]
+            quads.append(quad)
+        
+        return quads
+
+    def _refresh_current_page(self):
+        """Refresh the display of the current page to show new annotations."""
+        if self.current_page_index in self.loaded_pages:
+            # Remove and reload the current page
+            self.loaded_pages[self.current_page_index].deleteLater()
+            del self.loaded_pages[self.current_page_index]
+            self.page_manager.update_visible_pages(self.current_page_index)
+
+    def show_annotation_toolbar(self):
+        """Show the annotation toolbar."""
+        self.annotation_toolbar.show()
