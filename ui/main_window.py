@@ -470,10 +470,8 @@ class MainWindow(QMainWindow): # Renamed for clarity
 
     def _create_annotation_from_selection(self, annotation_type, color):
         """Create an annotation from the currently selected text."""
-        print("DEBUG: _create_annotation_from_selection called")
         
         if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
-            print("DEBUG: No PDF loaded or page not in loaded_pages")
             return
         
         current_page_widget = self.loaded_pages[self.current_page_index]
@@ -500,8 +498,6 @@ class MainWindow(QMainWindow): # Renamed for clarity
             current_page_widget.selected_words.clear()
             current_page_widget.selection_rects = []
             self._refresh_current_page()
-            
-            print("DEBUG: Page refreshed")
 
     def _words_to_quads(self, selected_words):
         """Convert selected words to quad coordinates."""

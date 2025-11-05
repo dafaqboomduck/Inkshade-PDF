@@ -69,7 +69,6 @@ class ClickablePageLabel(QLabel):
         self.input_handler.handle_page_label_mouse_release(self, event)
 
     def paintEvent(self, event):
-        print(f"=== PAINT EVENT START === annotations: {len(self.annotations)}")
         # 1. First, call the superclass's paintEvent to draw the QPixmap (the page image)
         super().paintEvent(event)
         
