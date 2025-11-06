@@ -120,9 +120,14 @@ def apply_style(widget: QWidget, dark_mode: bool):
                 border-bottom: 1px solid #3e3e3e;
             }
 
+            /* --- SCROLL AREA WITH DARKER BACKGROUND --- */
             QScrollArea {
-                background-color: #2e2e2e;
+                background-color: #1e1e1e;  /* Darker than pages */
                 border: none;
+            }
+            
+            QScrollArea > QWidget > QWidget {
+                background-color: #1e1e1e;  /* Page container background */
             }
 
             /* --- FLOATING TOOLBARS (DARK MODE) --- */
@@ -247,9 +252,14 @@ def apply_style(widget: QWidget, dark_mode: bool):
                 border-bottom: 1px solid #e0e0e0;
             }
 
+            /* --- SCROLL AREA WITH LIGHTER BACKGROUND --- */
             QScrollArea {
-                background-color: #f0f0f0;
+                background-color: #d0d0d0;  /* Lighter gray than pages */
                 border: none;
+            }
+            
+            QScrollArea > QWidget > QWidget {
+                background-color: #d0d0d0;  /* Page container background */
             }
 
             /* --- FLOATING TOOLBARS (LIGHT MODE) --- */
