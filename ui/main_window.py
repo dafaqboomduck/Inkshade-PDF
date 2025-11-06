@@ -462,24 +462,6 @@ class MainWindow(QMainWindow):
             apply_style(self.annotation_toolbar, self.dark_mode)
         if hasattr(self, 'drawing_toolbar'):
             apply_style(self.drawing_toolbar, self.dark_mode)
-
-    # In MainWindow class, add this method:
-    def handle_internal_link(self, page_num):
-        """Handle clicks on internal PDF links."""
-        self.page_manager.jump_to_page(page_num + 1)  # Convert to 1-based
-        
-    def handle_external_link(self, url):
-        """Handle clicks on external links."""
-        import webbrowser
-        reply = QMessageBox.question(
-            self,
-            "Open External Link",
-            f"Do you want to open this link in your browser?\n\n{url}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        if reply == QMessageBox.Yes:
-            webbrowser.open(url)
     
     def update_icon_colors(self):
         """Update all icon colors based on current dark mode setting."""
@@ -509,20 +491,17 @@ class MainWindow(QMainWindow):
                 btn.setIcon(icon)
     
     def copy_selected_text(self):
-        """Copy selected text from the current page."""
-        if self.pdf_reader.doc is None:
+        if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
             QMessageBox.warning(self, "No Page Loaded", "Please load a PDF document first.")
             return
 
-        # Get selected text from the page viewer
-        selected_text = self.page_manager.get_selected_text_from_current_page()
+        current_page_widget = self.loaded_pages[self.current_page_index]
+        selected_text = current_page_widget.get_selected_text()
         
         if selected_text:
             pyperclip.copy(selected_text)
-            # Optional: Show a brief notification
-            # QMessageBox.information(self, "Text Copied", f"Copied {len(selected_text)} characters")
         else:
-            QMessageBox.information(self, "No Selection", "No text has been selected.")
+            QMessageBox.information(self, "No Selection", "No text has been selected on the current page.")
     
     def open_pdf(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
@@ -792,6 +771,7 @@ class MainWindow(QMainWindow):
         self.search_bar.clear_search()
         self.page_manager.update_page_highlights()
 
+
     def _create_annotation_from_selection(self, annotation_type, color):
         """Create annotation from character-level selection."""
         if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
@@ -835,38 +815,23 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.information(self, "No Selection", "Please select text before creating an annotation.")
 
-    def _chars_to_quads(self, selected_chars):
-        """Convert selected characters to quad format for annotations."""
-        if not selected_chars:
-            return []
-        
-        # Group characters by line based on y-position
+    def _words_to_quads(self, selected_words):
+        quads = []
         lines = {}
-        for char, bbox in selected_chars:
-            # Round y-position to group nearby characters
-            line_key = round(bbox[1])
+        for word_info in selected_words:
+            line_key = (word_info[5], word_info[6])
             if line_key not in lines:
                 lines[line_key] = []
-            lines[line_key].append((char, bbox))
+            lines[line_key].append(word_info)
         
-        quads = []
-        for line_key, chars_in_line in sorted(lines.items()):
-            if not chars_in_line:
-                continue
-            
-            # Sort by x position
-            chars_in_line.sort(key=lambda c: c[1][0])
-            
-            # Get bounding box for the line
-            min_x = min(bbox[0] for char, bbox in chars_in_line)
-            max_x = max(bbox[2] for char, bbox in chars_in_line)
-            min_y = min(bbox[1] for char, bbox in chars_in_line)
-            max_y = max(bbox[3] for char, bbox in chars_in_line)
-            
-            # Create quad [x0, y0, x1, y1, x2, y2, x3, y3]
+        for line_key, words_in_line in lines.items():
+            words_in_line.sort(key=lambda x: x[0])
+            min_x = min(word[0] for word in words_in_line)
+            max_x = max(word[2] for word in words_in_line)
+            min_y = min(word[1] for word in words_in_line)
+            max_y = max(word[3] for word in words_in_line)
             quad = [min_x, min_y, max_x, min_y, min_x, max_y, max_x, max_y]
             quads.append(quad)
-        
         return quads
 
     def _refresh_current_page(self):
