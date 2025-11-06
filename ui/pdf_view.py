@@ -91,14 +91,20 @@ class PDFViewer:
 
             # Get annotations for this page
             annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
+            
+            # Get the PDF page object for link extraction
+            pdf_page = self.pdf_reader_core.doc.load_page(idx) if self.pdf_reader_core.doc else None
 
             label = ClickablePageLabel(self.page_container)
             label.set_page_data(
                 pix, text_data, word_data, self.zoom, self.dark_mode, 
                 search_highlights=rects_on_page, 
                 current_highlight_index=current_idx_on_page,
-                annotations=annotations_on_page
+                annotations=annotations_on_page,
+                page_index=idx,
+                pdf_page=pdf_page  # Pass the page object for link extraction
             )
+            
             if hasattr(self.main_window, 'drawing_toolbar') and self.main_window.drawing_toolbar.is_in_drawing_mode():
                 tool_settings = self.main_window.drawing_toolbar.get_current_settings()
                 tool, color, stroke_width, filled = tool_settings
