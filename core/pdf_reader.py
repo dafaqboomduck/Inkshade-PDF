@@ -43,6 +43,39 @@ class PDFDocumentReader:
         self._clear_search()
         self._page_elements_cache.clear()
     
+    def render_page(self, page_index: int, zoom_level: float, dark_mode: bool):
+        """
+        Renders a page to a QPixmap using PyMuPDF's rendering engine.
+        This ensures accurate text rendering.
+        """
+        if not self.doc or page_index >= self.total_pages:
+            return None
+        
+        try:
+            page = self.doc.load_page(page_index)
+            
+            # Create transformation matrix for zoom
+            mat = fitz.Matrix(zoom_level, zoom_level)
+            
+            # Render page to pixmap
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            
+            # Convert to QImage
+            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
+            
+            # Apply dark mode if needed
+            if dark_mode:
+                img.invertPixels()
+            
+            # Convert to QPixmap
+            pixmap = QPixmap.fromImage(img)
+            
+            return pixmap
+            
+        except Exception as e:
+            print(f"Error rendering page {page_index+1}: {e}")
+            return None
+    
     def get_page_elements(self, page_index: int, use_cache: bool = True) -> Optional[PageElements]:
         """
         Extracts and returns all elements from a page.
