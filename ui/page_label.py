@@ -1,57 +1,589 @@
-from PyQt5.QtCore import Qt, QRect, QRectF
-from PyQt5.QtGui import QPainter, QColor, QBrush, QImage
-from PyQt5.QtWidgets import QLabel
+from PyQt5.QtCore import Qt, QRect, QRectF, QUrl, QPoint, QPointF
+from PyQt5.QtGui import QPainter, QColor, QBrush, QImage, QDesktopServices, QCursor, QPainterPath, QPen
+from PyQt5.QtWidgets import QLabel, QApplication
 from core.user_input import UserInputHandler
 from core.annotation_manager import AnnotationType
+import fitz
+import math
+import time
 
-# Custom widget to display a page image and handle text selection
 class ClickablePageLabel(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.text_data = None
         self.word_data = None
+        self.char_data = []  # Store character-level data
         self.zoom_level = 1.0
         self.start_pos = None
         self.end_pos = None
         self.selection_rects = []
         self.dark_mode = False
         self.setMouseTracking(True)
-        self.selected_words = set()
-        self.line_word_map = {}
-        self._selection_at_start = set()
+        
+        # Enhanced selection state
+        self.selection_start_index = None
+        self.selection_end_index = None
+        self.selected_chars = []
+        self.is_selecting = False
+        self._all_chars = []  # Augmented character data with line/word info
+        
+        # Click handling for double/triple click
+        self.last_press_time = 0
+        self.last_double_click_time = 0
+        
+        # Link handling
+        self.links = []
+        self.hovered_link = None
+        self.page_index = -1
         
         self.search_highlights = []
         self.current_search_highlight_index = -1
         
-        # Store annotations for this page
+        # Annotations
         self.annotations = []
 
         self.input_handler = UserInputHandler(parent)
         
-        # NEW: Drawing state
+        # Drawing state
         self.is_drawing_mode = False
         self.current_drawing_tool = AnnotationType.FREEHAND
         self.current_drawing_color = (255, 0, 0)
         self.current_drawing_stroke_width = 2.0
         self.current_drawing_filled = False
-        self.current_drawing_points = []  # Points for current shape being drawn
-        self.is_currently_drawing = False  # Whether user is actively drawing right now
+        self.current_drawing_points = []
+        self.is_currently_drawing = False
 
-    def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode, search_highlights=None, current_highlight_index=-1, annotations=None):
+    def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode, 
+                      search_highlights=None, current_highlight_index=-1, annotations=None,
+                      page_index=-1, pdf_page=None):
+        """Enhanced set_page_data with character-level data and links."""
         self.setPixmap(pixmap)
         self.text_data = text_data
         self.word_data = word_data
         self.zoom_level = zoom_level
         self.dark_mode = dark_mode
         self.selection_rects = []
-        self.selected_words = set()
+        self.page_index = page_index
         
         self.search_highlights = search_highlights if search_highlights else []
         self.current_search_highlight_index = current_highlight_index
-
         self.annotations = annotations if annotations else []
+        
+        # Extract character-level data and links
+        self._extract_char_data()
+        if pdf_page:
+            self._extract_links(pdf_page)
+        
+        self._build_augmented_char_list()
+        self.clear_selection()
+        self.update()
 
-        self._build_line_word_map()
+    def _extract_char_data(self):
+        """Extract character-level position data from text_data."""
+        self.char_data = []
+        
+        if not self.text_data or 'blocks' not in self.text_data:
+            return
+        
+        char_index = 0
+        for block in self.text_data['blocks']:
+            if block.get('type') != 0:  # Only text blocks
+                continue
+                
+            for line in block.get('lines', []):
+                for span in line.get('spans', []):
+                    text = span.get('text', '')
+                    bbox = span.get('bbox', [0, 0, 0, 0])
+                    
+                    if not text:
+                        continue
+                    
+                    # Calculate character positions within the span
+                    span_width = bbox[2] - bbox[0]
+                    if len(text) > 0 and span_width > 0:
+                        char_width = span_width / len(text)
+                        
+                        for i, char in enumerate(text):
+                            char_x0 = bbox[0] + (i * char_width)
+                            char_x1 = bbox[0] + ((i + 1) * char_width)
+                            
+                            self.char_data.append({
+                                'char': char,
+                                'bbox': [char_x0, bbox[1], char_x1, bbox[3]],
+                                'span_idx': len(self.char_data),
+                                'line_bbox': line.get('bbox', [0, 0, 0, 0]),
+                                'block_no': block.get('number', 0),
+                                'line_no': line.get('number', 0),
+                                'char_index': char_index
+                            })
+                            char_index += 1
+
+    def _extract_links(self, pdf_page):
+        """Extract clickable links from the PDF page."""
+        self.links = []
+        
+        try:
+            for link in pdf_page.get_links():
+                link_rect = link.get('from', fitz.Rect())
+                link_data = {
+                    'rect': [link_rect.x0, link_rect.y0, link_rect.x1, link_rect.y1],
+                    'uri': link.get('uri', ''),
+                    'page': link.get('page', -1),
+                    'kind': link.get('kind', 0)  # 1=goto, 2=uri, 3=launch, etc.
+                }
+                self.links.append(link_data)
+        except Exception as e:
+            print(f"Error extracting links: {e}")
+
+    def _build_augmented_char_list(self):
+        """Build character list with line and word indices for smart selection."""
+        if not self.char_data:
+            self._all_chars = []
+            return
+        
+        # Sort by reading order
+        temp_chars = sorted(self.char_data, key=lambda c: (c['bbox'][1], c['bbox'][0]))
+        
+        # Augment with line and word info
+        self._all_chars = []
+        current_line_index = 0
+        current_word_index = 0
+        last_y = -1
+        last_x_end = -1
+        
+        for i, char_data in enumerate(temp_chars):
+            bbox = char_data['bbox']
+            char = char_data['char']
+            
+            # Check for new line (significant y-position change)
+            if last_y != -1 and abs(bbox[1] - last_y) > 3:
+                current_line_index += 1
+                current_word_index += 1  # New line always means new word
+            # Check for new word (space between characters)
+            elif last_x_end != -1 and (bbox[0] - last_x_end) > (bbox[2] - bbox[0]) * 0.3:
+                current_word_index += 1
+            
+            # Add augmented data
+            char_data['line_index'] = current_line_index
+            char_data['word_index'] = current_word_index
+            self._all_chars.append(char_data)
+            
+            # Update state
+            last_y = bbox[1]
+            last_x_end = bbox[2]
+            
+            # Whitespace always ends a word
+            if char.isspace():
+                current_word_index += 1
+
+    def _get_link_at_pos(self, pos):
+        """Check if there's a link at the given position."""
+        if not self.links:
+            return None
+        
+        for link in self.links:
+            rect = QRectF(
+                link['rect'][0] * self.zoom_level,
+                link['rect'][1] * self.zoom_level,
+                (link['rect'][2] - link['rect'][0]) * self.zoom_level,
+                (link['rect'][3] - link['rect'][1]) * self.zoom_level
+            )
+            
+            if rect.contains(pos):
+                return link
+        return None
+
+    def _get_char_index_at_pos(self, pos_in_page):
+        """Find the index of the character closest to the given page coordinates."""
+        x_pos, y_pos = pos_in_page
+        
+        if not self._all_chars:
+            return None
+        
+        min_dist_sq = float('inf')
+        closest_index = 0
+        
+        for i, char_data in enumerate(self._all_chars):
+            bbox = char_data['bbox']
+            center_x = (bbox[0] + bbox[2]) / 2
+            center_y = (bbox[1] + bbox[3]) / 2
+            dist_sq = (x_pos - center_x)**2 + (y_pos - center_y)**2
+            
+            if dist_sq < min_dist_sq:
+                min_dist_sq = dist_sq
+                closest_index = i
+        
+        # Check if click is on blank space (too far from any character)
+        closest_bbox = self._all_chars[closest_index]['bbox']
+        char_width = closest_bbox[2] - closest_bbox[0]
+        char_height = closest_bbox[3] - closest_bbox[1]
+        max_allowed_dist = max(char_width, char_height) * 1.5
+        
+        if min_dist_sq > max_allowed_dist**2:
+            return None  # Click is on blank space
+            
+        return closest_index
+
+    def _screen_to_page_coords(self, screen_pos):
+        """Convert screen coordinates to page coordinates."""
+        return (
+            screen_pos.x() / self.zoom_level,
+            screen_pos.y() / self.zoom_level
+        )
+
+    def mouseDoubleClickEvent(self, event):
+        """Handle double-clicks to select a word."""
+        self.last_double_click_time = time.time()
+        
+        if self.is_drawing_mode or event.button() != Qt.LeftButton:
+            return
+            
+        pos_in_page = self._screen_to_page_coords(event.pos())
+        char_index = self._get_char_index_at_pos(pos_in_page)
+        
+        if char_index is not None:
+            self._select_word_at_index(char_index)
+            self.is_selecting = False  # Don't start a drag
+            self._emit_selection_changed()
+
+    def mousePressEvent(self, event):
+        """Handle single-clicks (drag selection) and triple-clicks (line selection)."""
+        if event.button() == Qt.LeftButton:
+            
+            # Handle Drawing
+            if self.is_drawing_mode:
+                self.is_currently_drawing = True
+                self.current_drawing_points = [self._screen_to_page_coords(event.pos())]
+                self.update()
+                return
+            
+            # Handle Link Clicking
+            link = self._get_link_at_pos(event.pos())
+            if link and not (event.modifiers() & Qt.ControlModifier):
+                self._handle_link_click(link)
+                return
+            
+            # Handle Triple-Click (line selection)
+            current_time = time.time()
+            double_click_interval = QApplication.instance().doubleClickInterval() / 1000.0
+            
+            if (current_time - self.last_double_click_time) < double_click_interval:
+                # Triple click detected!
+                self.last_double_click_time = 0
+                
+                pos_in_page = self._screen_to_page_coords(event.pos())
+                char_index = self._get_char_index_at_pos(pos_in_page)
+                
+                if char_index is not None:
+                    self._select_line_at_index(char_index)
+                    self.is_selecting = False
+                    self._emit_selection_changed()
+                return
+            
+            # Handle Single-Click (start drag selection)
+            self.last_press_time = time.time()
+            
+            pos_in_page = self._screen_to_page_coords(event.pos())
+            char_index = self._get_char_index_at_pos(pos_in_page)
+            
+            # Click on blank space: deselect
+            if char_index is None:
+                self.clear_selection()
+                self._emit_selection_changed()
+                self.is_selecting = False
+                return
+            
+            # Start new selection
+            self.is_selecting = True
+            self.selection_start_index = char_index
+            self.selection_end_index = None
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for selection drag, link hovering, or drawing."""
+        pos_in_page = self._screen_to_page_coords(event.pos())
+        
+        # Handle Drawing
+        if self.is_drawing_mode and self.is_currently_drawing:
+            self.current_drawing_points.append(pos_in_page)
+            self.update()
+            return
+        
+        # Handle Text Selection Drag
+        if self.is_selecting and event.buttons() & Qt.LeftButton:
+            char_index = self._get_char_index_at_pos(pos_in_page)
+            if char_index is not None:
+                if self.selection_end_index != char_index:
+                    self.selection_end_index = char_index
+                    self._update_selection()
+                    self.update()
+        
+        # Handle Link Hovering
+        elif not self.is_selecting:
+            self._update_hover_state(event.pos())
+            
+    def mouseReleaseEvent(self, event):        
+        """Handle mouse release for selection or drawing."""
+        if event.button() == Qt.LeftButton:
+            
+            # Handle Drawing
+            if self.is_drawing_mode and self.is_currently_drawing:
+                self.is_currently_drawing = False
+                pos_in_page = self._screen_to_page_coords(event.pos())
+                self.current_drawing_points.append(pos_in_page)
+                self._finalize_drawing()
+                self.current_drawing_points = []
+                self.update()
+                return
+            
+            # Handle Text Selection
+            if self.is_selecting:
+                self.is_selecting = False
+                self._emit_selection_changed()
+
+    def _handle_link_click(self, link):
+        """Handle clicking on a link."""
+        if link['kind'] == 2 and link['uri']:  # External URI
+            QDesktopServices.openUrl(QUrl(link['uri']))
+        elif link['kind'] == 1 and link['page'] >= 0:  # Internal page link
+            # Navigate to the target page
+            main_window = self.parent()
+            while main_window and not hasattr(main_window, 'page_manager'):
+                main_window = main_window.parent()
+            
+            if main_window and hasattr(main_window, 'page_manager'):
+                main_window.page_manager.jump_to_page(link['page'] + 1)
+
+    def _select_word_at_index(self, index):
+        """Select all characters belonging to the same word."""
+        if index is None or not self._all_chars:
+            return
+            
+        target_word_index = self._all_chars[index]['word_index']
+        target_line_index = self._all_chars[index]['line_index']
+        
+        # Find start of the word
+        start_idx = index
+        while (start_idx > 0 and 
+               self._all_chars[start_idx - 1]['word_index'] == target_word_index and
+               self._all_chars[start_idx - 1]['line_index'] == target_line_index):
+            start_idx -= 1
+            
+        # Find end of the word
+        end_idx = index
+        while (end_idx < len(self._all_chars) - 1 and 
+               self._all_chars[end_idx + 1]['word_index'] == target_word_index and
+               self._all_chars[end_idx + 1]['line_index'] == target_line_index):
+            end_idx += 1
+            
+        self.selection_start_index = start_idx
+        self.selection_end_index = end_idx
+        self._update_selection()
+        self.update()
+
+    def _select_line_at_index(self, index):
+        """Select all characters belonging to the same line."""
+        if index is None or not self._all_chars:
+            return
+            
+        target_line_index = self._all_chars[index]['line_index']
+        
+        # Find start of the line
+        start_idx = index
+        while (start_idx > 0 and 
+               self._all_chars[start_idx - 1]['line_index'] == target_line_index):
+            start_idx -= 1
+            
+        # Find end of the line
+        end_idx = index
+        while (end_idx < len(self._all_chars) - 1 and 
+               self._all_chars[end_idx + 1]['line_index'] == target_line_index):
+            end_idx += 1
+            
+        self.selection_start_index = start_idx
+        self.selection_end_index = end_idx
+        self._update_selection()
+        self.update()
+
+    def _update_selection(self):
+        """Update selected characters based on start and end indices."""
+        self.selected_chars = []
+        self.selection_rects = []
+        
+        if (self.selection_start_index is None or 
+            self.selection_end_index is None or 
+            not self._all_chars):
+            return
+        
+        start_idx = min(self.selection_start_index, self.selection_end_index)
+        end_idx = max(self.selection_start_index, self.selection_end_index)
+        
+        if start_idx == -1 or end_idx == -1:
+            return
+            
+        # Build selected chars list
+        for i in range(start_idx, end_idx + 1):
+            char_data = self._all_chars[i]
+            self.selected_chars.append((char_data['char'], char_data['bbox']))
+        
+        # Build selection rectangles (merged by line for efficiency)
+        self.selection_rects = self._get_char_selection_rects()
+
+    def _get_char_selection_rects(self):
+        """Generate selection rectangles for selected characters."""
+        if not self.selected_chars:
+            return []
+        
+        selection_rects = []
+        current_rect = None
+        last_line = None
+        
+        for char, bbox in self.selected_chars:
+            # Determine if this char is on the same line as the previous
+            char_line = bbox[1]  # Use y-coordinate as line indicator
+            
+            if last_line is not None and abs(char_line - last_line) > 3:
+                # New line - save current rect and start new one
+                if current_rect:
+                    selection_rects.append(current_rect)
+                current_rect = QRect(
+                    int(bbox[0] * self.zoom_level),
+                    int(bbox[1] * self.zoom_level),
+                    int((bbox[2] - bbox[0]) * self.zoom_level),
+                    int((bbox[3] - bbox[1]) * self.zoom_level)
+                )
+            elif current_rect:
+                # Same line - extend current rectangle
+                char_rect = QRect(
+                    int(bbox[0] * self.zoom_level),
+                    int(bbox[1] * self.zoom_level),
+                    int((bbox[2] - bbox[0]) * self.zoom_level),
+                    int((bbox[3] - bbox[1]) * self.zoom_level)
+                )
+                current_rect = current_rect.united(char_rect)
+            else:
+                # First character
+                current_rect = QRect(
+                    int(bbox[0] * self.zoom_level),
+                    int(bbox[1] * self.zoom_level),
+                    int((bbox[2] - bbox[0]) * self.zoom_level),
+                    int((bbox[3] - bbox[1]) * self.zoom_level)
+                )
+            
+            last_line = char_line
+        
+        if current_rect:
+            selection_rects.append(current_rect)
+        
+        return selection_rects
+
+    def _update_hover_state(self, pos):
+        """Update link hover state and cursor."""
+        old_hovered_link = self.hovered_link
+        self.hovered_link = self._get_link_at_pos(pos)
+        
+        # Update cursor
+        if self.is_drawing_mode:
+            cursor = Qt.CrossCursor
+        elif self.hovered_link:
+            cursor = Qt.PointingHandCursor
+        else:
+            cursor = Qt.IBeamCursor
+        
+        if self.cursor().shape() != cursor:
+            self.setCursor(cursor)
+        
+        # Repaint if hover state changed
+        if old_hovered_link != self.hovered_link:
+            self.update()
+
+    def _emit_selection_changed(self):
+        """Emit selection changed signal if possible."""
+        text = self.get_selected_text()
+        # If the main window has a handler for selection changes, call it
+        main_window = self.parent()
+        while main_window and not hasattr(main_window, 'on_text_selection_changed'):
+            main_window = main_window.parent()
+        if main_window and hasattr(main_window, 'on_text_selection_changed'):
+            main_window.on_text_selection_changed(text)
+
+    def get_selected_text(self):
+        """Get text from selected characters with proper spacing."""
+        if not self.selected_chars:
+            return ""
+        
+        result = []
+        last_y = None
+        last_x = None
+        last_bbox = None
+        
+        for char, bbox in self.selected_chars:
+            if last_y is not None:
+                y_diff = abs(bbox[1] - last_y)
+                if y_diff > 3:  # New line
+                    result.append('\n')
+                    last_x = None
+                elif last_x is not None and last_bbox is not None:
+                    gap = bbox[0] - last_x
+                    last_char_width = last_bbox[2] - last_bbox[0]
+                    if gap > last_char_width * 0.3:  # Space between words
+                        result.append(' ')
+            
+            result.append(char)
+            last_y = bbox[1]
+            last_x = bbox[2]
+            last_bbox = bbox
+        
+        return ''.join(result)
+    
+    def get_selected_quads(self):
+        """Get quads for selected characters grouped by line for annotation."""
+        if not self.selected_chars:
+            return []
+        
+        quads = []
+        lines = {}
+        
+        # Group selected characters by line
+        for char, bbox in self.selected_chars:
+            line_y = bbox[1]  # Use y-coordinate as line indicator
+            
+            # Find which line this belongs to
+            line_key = None
+            for existing_line_y in lines.keys():
+                if abs(line_y - existing_line_y) < 3:
+                    line_key = existing_line_y
+                    break
+            
+            if line_key is None:
+                line_key = line_y
+                lines[line_key] = []
+            
+            lines[line_key].append(bbox)
+        
+        # Create quads for each line
+        for line_y in sorted(lines.keys()):
+            bboxes = lines[line_y]
+            if not bboxes:
+                continue
+                
+            # Get bounding box for the line
+            min_x = min(bbox[0] for bbox in bboxes)
+            max_x = max(bbox[2] for bbox in bboxes)
+            min_y = min(bbox[1] for bbox in bboxes)
+            max_y = max(bbox[3] for bbox in bboxes)
+            
+            # Create quad (8 values: 4 corners)
+            quad = [min_x, min_y, max_x, min_y, min_x, max_y, max_x, max_y]
+            quads.append(quad)
+        
+        return quads
+
+    def clear_selection(self):
+        """Clear the current text selection."""
+        self.selected_chars = []
+        self.selection_rects = []
+        self.selection_start_index = None
+        self.selection_end_index = None
         self.update()
 
     def set_search_highlights(self, highlights, current_index=-1):
@@ -59,73 +591,18 @@ class ClickablePageLabel(QLabel):
         self.current_search_highlight_index = current_index
         self.update()
 
-    def _build_line_word_map(self):
-        self.line_word_map = {}
-        if self.word_data:
-            for word_info in self.word_data:
-                block_no, line_no = word_info[5], word_info[6]
-                key = (block_no, line_no)
-                if key not in self.line_word_map:
-                    self.line_word_map[key] = []
-                self.line_word_map[key].append(word_info)
-
-    def mousePressEvent(self, event):
-        
-        if self.is_drawing_mode and event.button() == Qt.LeftButton:
-            # Start drawing
-            self.is_currently_drawing = True
-            self.current_drawing_points = [(event.pos().x() / self.zoom_level, 
-                                            event.pos().y() / self.zoom_level)]
-            self.update()
-        else:
-            # Normal text selection
-            self.input_handler.handle_page_label_mouse_press(self, event)
-
-    def mouseMoveEvent(self, event):
-        if self.is_drawing_mode and self.is_currently_drawing:
-            # Add point to current drawing
-            self.current_drawing_points.append((event.pos().x() / self.zoom_level, 
-                                            event.pos().y() / self.zoom_level))
-            self.update()
-        else:
-            # Normal text selection
-            self.input_handler.handle_page_label_mouse_move(self, event)
-            
-    def mouseReleaseEvent(self, event):        
-        if self.is_drawing_mode and event.button() == Qt.LeftButton and self.is_currently_drawing:
-            # Finish drawing
-            self.is_currently_drawing = False
-            self.current_drawing_points.append((event.pos().x() / self.zoom_level, 
-                                            event.pos().y() / self.zoom_level))
-            
-            
-            # Create annotation from the drawn shape
-            self._finalize_drawing()
-            
-            self.current_drawing_points = []
-            self.update()
-        else:
-            # Normal text selection
-            self.input_handler.handle_page_label_mouse_release(self, event)
-
     def _finalize_drawing(self):
         """Create an annotation from the current drawing."""
-        
         if len(self.current_drawing_points) < 2:
-            return  # Need at least 2 points
+            return
         
-        # Emit signal to parent to create annotation
-        # We'll handle this through the main window
         from helpers.annotations import Annotation
         
-        # Get the main window through parent chain
         main_window = self.parent()
         while main_window and not hasattr(main_window, 'annotation_manager'):
             main_window = main_window.parent()
 
-        
         if main_window:
-            # Find which page this label represents
             page_index = None
             for idx, label in main_window.loaded_pages.items():
                 if label == self:
@@ -142,30 +619,37 @@ class ClickablePageLabel(QLabel):
                     filled=self.current_drawing_filled
                 )
                 main_window.annotation_manager.add_annotation(annotation)
-                            
-                # Refresh this page to show the new annotation
                 main_window._refresh_current_page()
                 
     def paintEvent(self, event):
-        # 1. First, call the superclass's paintEvent to draw the QPixmap (the page image)
         super().paintEvent(event)
         
-        # 2. Initialize the QPainter for the widget
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Create a QImage buffer with the size of the widget and make it transparent
         buffer = QImage(self.size(), QImage.Format_ARGB32_Premultiplied)
         buffer.fill(Qt.transparent)
         
-        # Initialize the QPainter for the buffer
         buf_painter = QPainter(buffer)
         buf_painter.setCompositionMode(QPainter.CompositionMode_Source)
         buf_painter.setRenderHint(QPainter.Antialiasing)
         buf_painter.setPen(Qt.NoPen)
         
-        # --- Draw Search Highlights onto the buffer ---
+        # Draw link highlights (subtle)
+        if self.hovered_link and not self.is_drawing_mode:
+            link_rect = self.hovered_link['rect']
+            hover_rect = QRectF(
+                link_rect[0] * self.zoom_level,
+                link_rect[1] * self.zoom_level,
+                (link_rect[2] - link_rect[0]) * self.zoom_level,
+                (link_rect[3] - link_rect[1]) * self.zoom_level
+            )
+            hover_color = QColor(100, 149, 237, 30)  # Light blue, very transparent
+            buf_painter.setBrush(QBrush(hover_color))
+            buf_painter.drawRect(hover_rect)
+            buf_painter.setBrush(Qt.NoBrush)
         
+        # Draw Search Highlights
         if 0 <= self.current_search_highlight_index < len(self.search_highlights):
             current_rect = self.search_highlights[self.current_search_highlight_index]
             current_highlight_rect = QRectF(
@@ -183,8 +667,7 @@ class ClickablePageLabel(QLabel):
             buf_painter.drawRect(current_highlight_rect)
             buf_painter.setBrush(Qt.NoBrush)
 
-        # --- Draw Annotations onto the buffer ---
-        
+        # Draw Annotations
         for annotation in self.annotations:
             color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], 100)
             
@@ -219,10 +702,6 @@ class ClickablePageLabel(QLabel):
                 
                 if not annotation.points or len(annotation.points) < 2:
                     continue
-                
-                from PyQt5.QtGui import QPen, QPainterPath
-                from PyQt5.QtCore import QPointF
-                import math
                 
                 solid_color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], 255)
                 pen = QPen(solid_color, annotation.stroke_width)
@@ -308,16 +787,11 @@ class ClickablePageLabel(QLabel):
                 
                 buf_painter.setPen(Qt.NoPen)
 
-        # --- Draw current drawing in progress (real-time preview) ---
-        
+        # Draw current drawing in progress
         if self.is_currently_drawing and len(self.current_drawing_points) >= 2:
             preview_color = QColor(self.current_drawing_color[0], 
                                 self.current_drawing_color[1], 
                                 self.current_drawing_color[2], 150)
-            
-            from PyQt5.QtGui import QPen, QPainterPath
-            from PyQt5.QtCore import QPointF
-            import math
             
             pen = QPen(preview_color, self.current_drawing_stroke_width)
             buf_painter.setPen(pen)
@@ -400,8 +874,7 @@ class ClickablePageLabel(QLabel):
             
             buf_painter.setPen(Qt.NoPen)
 
-        # --- Draw Text Selection Highlights onto the buffer ---
-
+        # Draw Text Selection Highlights
         if self.selection_rects:
             if self.dark_mode:
                 selection_color = QColor(255, 255, 0, 100)
@@ -415,43 +888,13 @@ class ClickablePageLabel(QLabel):
             
             buf_painter.setBrush(Qt.NoBrush)
         
-        # IMPORTANT: End the buffer painter BEFORE using it elsewhere
         buf_painter.end()
-
-        # 3. Now paint the combined buffer onto the widget
         painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
         painter.drawImage(0, 0, buffer)
-        
         painter.end()
     
     def get_selection_rects(self):
         return self.selection_rects
-    
-    def get_selected_text(self):
-        if not self.selected_words:
-            return ""
-
-        sorted_words = sorted(list(self.selected_words), key=lambda x: (x[1], x[0]))
-        
-        text_lines = []
-        current_line_key = None
-        current_line_words = []
-        for word_info in sorted_words:
-            line_key = (word_info[5], word_info[6])
-            if current_line_key is None:
-                current_line_key = line_key
-            
-            if line_key != current_line_key:
-                text_lines.append(" ".join(current_line_words))
-                current_line_key = line_key
-                current_line_words = []
-            
-            current_line_words.append(word_info[4])
-        
-        if current_line_words:
-            text_lines.append(" ".join(current_line_words))
-
-        return "\n".join(text_lines)
     
     def set_drawing_mode(self, enabled, tool=None, color=None, stroke_width=None, filled=None):
         """Enable or disable drawing mode and update tool settings."""
@@ -466,10 +909,7 @@ class ClickablePageLabel(QLabel):
         if filled is not None:
             self.current_drawing_filled = filled
         
-        # Change cursor when in drawing mode
         if self.is_drawing_mode:
             self.setCursor(Qt.CrossCursor)
         else:
-            self.setCursor(Qt.ArrowCursor)
-
-    
+            self.setCursor(Qt.IBeamCursor)
