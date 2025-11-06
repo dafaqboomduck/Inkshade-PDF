@@ -86,16 +86,18 @@ class PDFDocumentReader:
             return elements
             
         except Exception as e:
-            QMessageBox.critical(None, "Error", f"Error parsing page {page_index+1}: {e}")
+            print(f"Error parsing page {page_index+1}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _extract_text_elements(self, page: fitz.Page, page_index: int) -> List[TextElement]:
-        """Extract individual text characters with their properties."""
+        """Extract text as spans (word groups) with character-level data for selection."""
         text_elements = []
         
         try:
-            # Use rawdict to get actual character positions
-            blocks = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+            # Use dict mode to get reliable span-level text
+            blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
             
             for block in blocks.get("blocks", []):
                 if block.get("type") != 0:  # Not a text block
@@ -103,9 +105,15 @@ class PDFDocumentReader:
                 
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
+                        text = span.get("text", "")
+                        if not text or not text.strip():
+                            continue
+                        
                         font_name = span.get("font", "")
                         font_size = span.get("size", 12)
                         color_int = span.get("color", 0)
+                        bbox = span.get("bbox", (0, 0, 0, 0))
+                        origin = span.get("origin", (bbox[0], bbox[3]))  # Baseline position
                         
                         # Convert color from integer to RGB
                         color = (
@@ -114,49 +122,41 @@ class PDFDocumentReader:
                             color_int & 0xFF
                         )
                         
-                        # Get character-level information
-                        chars = span.get("chars", [])
+                        # Get character-level data for this span (for selection)
+                        chars_data = []
+                        chars_list = span.get("chars", [])
                         
-                        if chars:
-                            # Use actual character bounding boxes
-                            for char_info in chars:
+                        if chars_list:
+                            # Use actual character positions
+                            for char_info in chars_list:
                                 char = char_info.get("c", "")
-                                bbox = char_info.get("bbox", (0, 0, 0, 0))
-                                
-                                text_elem = TextElement(
-                                    char=char,
-                                    bbox=bbox,
-                                    font_name=font_name,
-                                    font_size=font_size,
-                                    color=color,
-                                    page_index=page_index
-                                )
-                                text_elements.append(text_elem)
+                                char_bbox = char_info.get("bbox", (0, 0, 0, 0))
+                                chars_data.append((char, char_bbox))
                         else:
-                            # Fallback: use span-level bbox and estimate positions
-                            text = span.get("text", "")
-                            bbox = span.get("bbox", (0, 0, 0, 0))
-                            
-                            if len(text) > 0:
-                                char_width = (bbox[2] - bbox[0]) / len(text)
-                                
-                                for i, char in enumerate(text):
-                                    char_x0 = bbox[0] + (i * char_width)
-                                    char_x1 = char_x0 + char_width
-                                    char_bbox = (char_x0, bbox[1], char_x1, bbox[3])
-                                    
-                                    text_elem = TextElement(
-                                        char=char,
-                                        bbox=char_bbox,
-                                        font_name=font_name,
-                                        font_size=font_size,
-                                        color=color,
-                                        page_index=page_index
-                                    )
-                                    text_elements.append(text_elem)
+                            # Fallback: estimate character positions
+                            char_width = (bbox[2] - bbox[0]) / len(text) if len(text) > 0 else 0
+                            for i, char in enumerate(text):
+                                char_x0 = bbox[0] + (i * char_width)
+                                char_x1 = char_x0 + char_width
+                                char_bbox = (char_x0, bbox[1], char_x1, bbox[3])
+                                chars_data.append((char, char_bbox))
+                        
+                        # Create text element for the entire span
+                        text_elem = TextElement(
+                            text=text,
+                            bbox=bbox,
+                            font_name=font_name,
+                            font_size=font_size,
+                            color=color,
+                            page_index=page_index,
+                            chars=chars_data
+                        )
+                        text_elements.append(text_elem)
         
         except Exception as e:
             print(f"Error extracting text elements: {e}")
+            import traceback
+            traceback.print_exc()
         
         return text_elements
     
@@ -322,15 +322,7 @@ class PDFDocumentReader:
     def get_text_at_position(self, page_index: int, x: float, y: float, 
                             tolerance: float = 2.0) -> Optional[TextElement]:
         """
-        Get the text character at a specific position on the page.
-        
-        Args:
-            page_index: Zero-based page index
-            x, y: Coordinates on the page
-            tolerance: Tolerance for hit detection
-            
-        Returns:
-            TextElement if found, None otherwise
+        Get the text span at a specific position on the page.
         """
         elements = self.get_page_elements(page_index)
         if not elements:
@@ -357,36 +349,6 @@ class PDFDocumentReader:
         
         return None
     
-    def get_text_in_rect(self, page_index: int, rect: Tuple[float, float, float, float]) -> str:
-        """Get all text within a rectangular region."""
-        elements = self.get_page_elements(page_index)
-        if not elements:
-            return ""
-        
-        x0, y0, x1, y1 = rect
-        chars = []
-        
-        for text_elem in elements.texts:
-            bbox = text_elem.bbox
-            # Check if character bbox intersects with selection rect
-            if not (bbox[2] < x0 or bbox[0] > x1 or bbox[3] < y0 or bbox[1] > y1):
-                chars.append(text_elem)
-        
-        # Sort by position (top to bottom, left to right)
-        chars.sort(key=lambda t: (t.bbox[1], t.bbox[0]))
-        
-        # Reconstruct text with line breaks
-        result = []
-        last_y = None
-        
-        for char in chars:
-            if last_y is not None and abs(char.bbox[1] - last_y) > char.font_size * 0.5:
-                result.append('\n')
-            result.append(char.char)
-            last_y = char.bbox[1]
-        
-        return ''.join(result)
-    
     def _clear_search(self):
         """Resets the search state."""
         self.search_results = []
@@ -394,10 +356,7 @@ class PDFDocumentReader:
         self.current_search_term = ""
     
     def execute_search(self, search_term: str) -> int:
-        """
-        Performs a search across the entire document.
-        Now searches through individual characters for better accuracy.
-        """
+        """Performs a search across the entire document."""
         if not search_term:
             self._clear_search()
             return 0
@@ -406,7 +365,7 @@ class PDFDocumentReader:
             self.current_search_term = search_term
             self.search_results = []
             
-            # Search using PyMuPDF's built-in search (still useful for getting regions)
+            # Search using PyMuPDF's built-in search
             for i in range(self.total_pages):
                 page = self.doc.load_page(i)
                 quads_on_page = page.search_for(search_term, quads=True)
