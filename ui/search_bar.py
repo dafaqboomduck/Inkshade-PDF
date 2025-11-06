@@ -1,7 +1,7 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QToolButton, QWidget, QGraphicsDropShadowEffect
+    QToolButton, QWidget, QGraphicsDropShadowEffect, QSizePolicy
 )
 from PyQt5.QtGui import QColor
 
@@ -22,8 +22,9 @@ class SearchBar(QFrame):
         self.hide()
     
     def setup_ui(self):
-        # Make it a floating widget with fixed width
+        # Set fixed width and let height expand naturally
         self.setFixedWidth(300)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(12, 10, 12, 10)
@@ -80,6 +81,9 @@ class SearchBar(QFrame):
         
         main_layout.addLayout(nav_layout)
         
+        # Let the layout calculate natural size
+        self.adjustSize()
+        
         # Add shadow effect for better visibility
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(20)
@@ -116,9 +120,3 @@ class SearchBar(QFrame):
     def get_search_text(self):
         """Get the current search text."""
         return self.search_input.text()
-    
-    def update_position(self, parent_size):
-        """Position the search bar in the top-right corner."""
-        x = parent_size.width() - self.width() - 12
-        y = 20
-        self.move(x, y)

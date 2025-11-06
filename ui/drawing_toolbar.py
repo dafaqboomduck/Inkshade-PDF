@@ -3,7 +3,7 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
     QColorDialog, QToolButton, QSpinBox, QCheckBox, QWidget,
-    QGraphicsDropShadowEffect
+    QGraphicsDropShadowEffect, QSizePolicy
 )
 from helpers.annotations import AnnotationType
 
@@ -27,8 +27,9 @@ class DrawingToolbar(QFrame):
         self.hide()
     
     def setup_ui(self):
-        # Fixed width for compact display
+        # Set fixed width and let height expand naturally
         self.setFixedWidth(300)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(12, 10, 12, 10)
@@ -108,20 +109,6 @@ class DrawingToolbar(QFrame):
         
         main_layout.addLayout(tool_row1)
         
-        # # Tool buttons - Second row
-        # tool_row2 = QHBoxLayout()
-        # tool_row2.setSpacing(6)
-        
-        # self.rect_button = self._create_tool_button("□", "Rectangle", AnnotationType.RECTANGLE, False)
-        # tool_row2.addWidget(self.rect_button)
-        
-        # self.circle_button = self._create_tool_button("○", "Circle", AnnotationType.CIRCLE, False)
-        # tool_row2.addWidget(self.circle_button)
-        
-        # tool_row2.addStretch()
-        
-        # main_layout.addLayout(tool_row2)
-        
         # Settings
         settings_label = QLabel("Settings", self)
         settings_label.setStyleSheet("color: #8899AA; font-size: 11px; margin-top: 4px;")
@@ -173,7 +160,8 @@ class DrawingToolbar(QFrame):
         
         main_layout.addLayout(color_layout)
         
-        main_layout.addStretch()
+        # Let the layout calculate natural size
+        self.adjustSize()
         
         # Add shadow
         shadow = QGraphicsDropShadowEffect()
@@ -276,9 +264,3 @@ class DrawingToolbar(QFrame):
     def is_in_drawing_mode(self):
         """Check if currently in drawing mode."""
         return self.is_drawing_mode
-    
-    def update_position(self, parent_size):
-        """Position the toolbar in the top-right corner."""
-        x = parent_size.width() - self.width() - 12
-        y = 20
-        self.move(x, y)

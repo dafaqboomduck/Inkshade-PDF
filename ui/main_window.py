@@ -234,22 +234,6 @@ class MainWindow(QMainWindow):
             annotation_manager=self.annotation_manager
         )
         
-        # SEARCH BAR (floating)
-        self.search_bar = SearchBar(self.scroll_area)
-        self.search_bar.search_requested.connect(self._execute_search)
-        self.search_bar.next_result_requested.connect(self._find_next)
-        self.search_bar.prev_result_requested.connect(self._find_prev)
-        self.search_bar.close_requested.connect(self._clear_search)
-
-        # ANNOTATION TOOLBAR (floating)
-        self.annotation_toolbar = AnnotationToolbar(self.scroll_area)
-        self.annotation_toolbar.annotation_requested.connect(self._create_annotation_from_selection)
-
-        # DRAWING TOOLBAR (floating)
-        self.drawing_toolbar = DrawingToolbar(self.scroll_area)
-        self.drawing_toolbar.drawing_mode_changed.connect(self._on_drawing_mode_changed)
-        self.drawing_toolbar.tool_changed.connect(self._on_drawing_tool_changed)
-        
         # TOC WIDGET (not a dock, just a regular widget)
         self.toc_widget.toc_link_clicked.connect(self._handle_toc_click)
         self.toc_widget.hide()  # Start hidden
@@ -279,16 +263,52 @@ class MainWindow(QMainWindow):
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
+
+        # FLOATING TOOLBARS - Parent them to self (QMainWindow), not any layout
+        # This ensures they float above everything and maintain their full size
+        
+        # SEARCH BAR (floating)
+        self.search_bar = SearchBar(self)
+        self.search_bar.search_requested.connect(self._execute_search)
+        self.search_bar.next_result_requested.connect(self._find_next)
+        self.search_bar.prev_result_requested.connect(self._find_prev)
+        self.search_bar.close_requested.connect(self._clear_search)
+        self.search_bar.raise_()
+
+        # ANNOTATION TOOLBAR (floating)
+        self.annotation_toolbar = AnnotationToolbar(self)
+        self.annotation_toolbar.annotation_requested.connect(self._create_annotation_from_selection)
+        self.annotation_toolbar.raise_()
+
+        # DRAWING TOOLBAR (floating)
+        self.drawing_toolbar = DrawingToolbar(self)
+        self.drawing_toolbar.drawing_mode_changed.connect(self._on_drawing_mode_changed)
+        self.drawing_toolbar.tool_changed.connect(self._on_drawing_tool_changed)
+        self.drawing_toolbar.raise_()
+        
+        # Position toolbars after they're created
+        QTimer.singleShot(0, self._update_toolbar_positions)
     
     def resizeEvent(self, event):
         """Handle window resize to reposition floating toolbars."""
         super().resizeEvent(event)
+        self._update_toolbar_positions()
+
+    def _update_toolbar_positions(self):
+        """Update positions of all floating toolbars."""
+        # Position from the right edge of the window
+        window_width = self.width()
+        x = window_width - 18 - 300  # 18px margin, 300px toolbar width
+        y = self.top_frame.height() + 20  # Below top frame + 20px margin
+        
         if hasattr(self, 'search_bar'):
-            self.search_bar.update_position(self.scroll_area.size())
+            self.search_bar.move(x, y)
+        
         if hasattr(self, 'annotation_toolbar'):
-            self.annotation_toolbar.update_position(self.scroll_area.size())
+            self.annotation_toolbar.move(x, y)
+        
         if hasattr(self, 'drawing_toolbar'):
-            self.drawing_toolbar.update_position(self.scroll_area.size())
+            self.drawing_toolbar.move(x, y)
 
     def _handle_toc_click(self, page_num, y_pos):
         """Handle TOC item clicks with precise positioning."""
@@ -387,6 +407,8 @@ class MainWindow(QMainWindow):
         else:
             self.toc_widget.show()
             self.load_toc_data()
+        
+        # Toolbars will automatically reposition on next resize event
 
     def load_toc_data(self):
         """Gets TOC data and loads it into the TOC widget."""
@@ -533,6 +555,7 @@ class MainWindow(QMainWindow):
     # SEARCH METHODS
     def _show_search_bar(self):
         self.search_bar.show_bar()
+        self.search_bar.raise_()
 
     def _hide_search_bar(self):
         self.search_bar.hide()
@@ -624,9 +647,11 @@ class MainWindow(QMainWindow):
 
     def show_annotation_toolbar(self):
         self.annotation_toolbar.show()
+        self.annotation_toolbar.raise_()
 
     def show_drawing_toolbar(self):
         self.drawing_toolbar.show()
+        self.drawing_toolbar.raise_()
 
     def _on_drawing_mode_changed(self, enabled):
         tool_settings = self.drawing_toolbar.get_current_settings()

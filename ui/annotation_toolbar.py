@@ -2,7 +2,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
-    QColorDialog, QToolButton, QWidget, QGraphicsDropShadowEffect
+    QColorDialog, QToolButton, QWidget, QGraphicsDropShadowEffect, QSizePolicy
 )
 from helpers.annotations import AnnotationType
 
@@ -22,8 +22,9 @@ class AnnotationToolbar(QFrame):
         self.hide()
     
     def setup_ui(self):
-        # Fixed width for compact display
+        # Set fixed width and let height expand naturally
         self.setFixedWidth(300)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(12, 10, 12, 10)
@@ -115,7 +116,8 @@ class AnnotationToolbar(QFrame):
         """)
         main_layout.addWidget(self.apply_button)
         
-        main_layout.addStretch()
+        # Let the layout calculate natural size
+        self.adjustSize()
         
         # Add shadow
         shadow = QGraphicsDropShadowEffect()
@@ -161,9 +163,3 @@ class AnnotationToolbar(QFrame):
     def get_current_settings(self):
         """Return current annotation type and color."""
         return self.current_type, self.current_color
-    
-    def update_position(self, parent_size):
-        """Position the toolbar in the top-right corner."""
-        x = parent_size.width() - self.width() - 12
-        y = 20
-        self.move(x, y)
