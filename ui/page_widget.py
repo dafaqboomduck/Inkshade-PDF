@@ -23,11 +23,12 @@ class PageWidget(QWidget):
         self.zoom_level = 1.0
         self.dark_mode = False
         
-        # Selection state
-        self.selection_start_pos = None
-        self.selection_end_pos = None
-        self.selected_chars = []
+        # Selection state # MODIFIED
+        self.selection_start_index = None  # Use index in _all_chars
+        self.selection_end_index = None    # Use index in _all_chars
+        self.selected_chars = []           # List of (char, bbox) tuples
         self.is_selecting = False
+        self._all_chars = []               # NEW: Flat, sorted list of all chars
         
         # Hover state for links
         self.hovered_link = None
@@ -69,6 +70,19 @@ class PageWidget(QWidget):
             self.setMinimumSize(page_pixmap.width(), page_pixmap.height())
             self.setMaximumSize(page_pixmap.width(), page_pixmap.height())
         
+        # NEW: Build the flat, sorted list of all characters
+        self._all_chars = []
+        temp_chars = []
+        if self.page_elements:
+            for text_elem in self.page_elements.texts:
+                for char, bbox in text_elem.chars:
+                    # Store char and bbox
+                    temp_chars.append({'char': char, 'bbox': bbox})
+        
+        # Sort them by reading order (top-to-bottom, left-to-right)
+        self._all_chars = sorted(temp_chars, key=lambda c: (c['bbox'][1], c['bbox'][0]))
+        
+        self.clear_selection() # Clear selection when new page data is set
         self.update()
     
     def paintEvent(self, event):
@@ -194,9 +208,10 @@ class PageWidget(QWidget):
                 self.is_currently_drawing = True
                 self.current_drawing_points = [pos_in_page]
             else:
+                # MODIFIED: Use char index
                 self.is_selecting = True
-                self.selection_start_pos = pos_in_page
-                self.selection_end_pos = pos_in_page
+                self.selection_start_index = self._get_char_index_at_pos(pos_in_page)
+                self.selection_end_index = self.selection_start_index
                 self._update_selection()
     
     def mouseMoveEvent(self, event):
@@ -204,7 +219,8 @@ class PageWidget(QWidget):
         pos_in_page = self._screen_to_page_coords(event.pos())
         
         if self.is_selecting and event.buttons() & Qt.LeftButton:
-            self.selection_end_pos = pos_in_page
+            # MODIFIED: Use char index
+            self.selection_end_index = self._get_char_index_at_pos(pos_in_page)
             self._update_selection()
             self.update()
         
@@ -233,52 +249,70 @@ class PageWidget(QWidget):
             screen_pos.y() / self.zoom_level
         )
     
+    # NEW: Helper function to find closest character index
+    def _get_char_index_at_pos(self, pos_in_page):
+        """Find the index of the character closest to the given page coordinates."""
+        x_pos, y_pos = pos_in_page
+        
+        if not self._all_chars:
+            return None
+        
+        min_dist_sq = float('inf')
+        closest_index = 0
+        
+        # Find the character with the closest center to the cursor
+        for i, char_data in enumerate(self._all_chars):
+            bbox = char_data['bbox']
+            # Calculate center of the character box
+            center_x = (bbox[0] + bbox[2]) / 2
+            center_y = (bbox[1] + bbox[3]) / 2
+            
+            # Calculate squared distance
+            dist_sq = (x_pos - center_x)**2 + (y_pos - center_y)**2
+            
+            if dist_sq < min_dist_sq:
+                min_dist_sq = dist_sq
+                closest_index = i
+                
+        return closest_index
+
+    # MODIFIED: Complete rewrite of selection logic
     def _update_selection(self):
-        """Update selected characters based on selection rectangle."""
-        if not self.page_elements or not self.selection_start_pos or not self.selection_end_pos:
+        """Update selected characters based on start and end indices."""
+        self.selected_chars = []
+        
+        if (self.selection_start_index is None or 
+            self.selection_end_index is None or 
+            not self._all_chars):
             return
         
-        # Create selection rectangle
-        x0 = min(self.selection_start_pos[0], self.selection_end_pos[0])
-        y0 = min(self.selection_start_pos[1], self.selection_end_pos[1])
-        x1 = max(self.selection_start_pos[0], self.selection_end_pos[0])
-        y1 = max(self.selection_start_pos[1], self.selection_end_pos[1])
+        start_idx = min(self.selection_start_index, self.selection_end_index)
+        end_idx = max(self.selection_start_index, self.selection_end_index)
         
-        # Find all characters within selection from all text spans
-        self.selected_chars = []
-        for text_elem in self.page_elements.texts:
-            for char, bbox in text_elem.chars:
-                # Check if ANY part of the character bbox intersects with selection
-                char_x0, char_y0, char_x1, char_y1 = bbox
-                
-                # Check for intersection
-                intersects = not (char_x1 < x0 or char_x0 > x1 or char_y1 < y0 or char_y0 > y1)
-                
-                if intersects:
-                    # Additional check: at least 30% of character width should be selected
-                    overlap_x0 = max(char_x0, x0)
-                    overlap_x1 = min(char_x1, x1)
-                    overlap_width = overlap_x1 - overlap_x0
-                    char_width = char_x1 - char_x0
-                    
-                    if char_width > 0 and overlap_width / char_width >= 0.3:
-                        self.selected_chars.append((char, bbox))
+        if start_idx == -1 or end_idx == -1:
+            return
+            
+        # Populate selected_chars with the (char, bbox) tuples from the range
+        for i in range(start_idx, end_idx + 1):
+            char_data = self._all_chars[i]
+            self.selected_chars.append((char_data['char'], char_data['bbox']))
     
     def _get_selected_text(self) -> str:
         """Get the selected text as a string."""
         if not self.selected_chars:
             return ""
         
-        # Sort by position (top to bottom, left to right)
-        sorted_chars = sorted(self.selected_chars, key=lambda t: (t[1][1], t[1][0]))
+        # MODIFIED: The sorting step is no longer needed, as self.selected_chars
+        # is already in reading order from self._all_chars
+        # sorted_chars = sorted(self.selected_chars, key=lambda t: (t[1][1], t[1][0]))
         
-        # Reconstruct text with line breaks and spaces
         result = []
         last_y = None
         last_x = None
         last_bbox = None
         
-        for char, bbox in sorted_chars:
+        # Iterate directly over self.selected_chars
+        for char, bbox in self.selected_chars:
             # Check for new line (vertical gap)
             if last_y is not None:
                 y_diff = abs(bbox[1] - last_y)
@@ -327,9 +361,10 @@ class PageWidget(QWidget):
     
     def clear_selection(self):
         """Clear the current text selection."""
+        # MODIFIED
         self.selected_chars = []
-        self.selection_start_pos = None
-        self.selection_end_pos = None
+        self.selection_start_index = None
+        self.selection_end_index = None
         self.update()
     
     def set_drawing_mode(self, enabled, tool=None, color=None, stroke_width=None, filled=None):
