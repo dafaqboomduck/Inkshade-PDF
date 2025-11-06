@@ -22,7 +22,7 @@ class UserInputHandler:
             self.main_window.copy_selected_text()
             event.accept()
         elif event.matches(QKeySequence.Find):
-            self.main_window._show_search_bar()
+            self.main_window.show_search_bar()
             event.accept()
         elif event.matches(QKeySequence.Open):
             self.main_window.open_pdf()
