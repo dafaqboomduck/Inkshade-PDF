@@ -137,7 +137,7 @@ class MainWindow(QMainWindow):
 
         # Search Button
         self.search_button = self.create_icon_button("resources/icons/search-icon.png", "Search (Ctrl+F)", self.top_frame)
-        self.search_button.clicked.connect(self._show_search_bar)
+        self.search_button.clicked.connect(self.show_search_bar)
         self.top_layout.addWidget(self.search_button)
         self.icon_buttons.append((self.search_button, "resources/icons/search-icon.png"))
 
@@ -389,6 +389,8 @@ class MainWindow(QMainWindow):
         self.toc_button.setVisible(True)
         self._clear_search()
         self._hide_search_bar()
+        self._hide_annotation_toolbar()
+        self._hide_drawing_toolbar()
         
         self.file_name_label.setText("No PDF Loaded")
         self.total_page_label.setText("/ 0")
@@ -553,9 +555,14 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, _restore)
 
     # SEARCH METHODS
-    def _show_search_bar(self):
-        self.search_bar.show_bar()
-        self.search_bar.raise_()
+    def show_search_bar(self):
+        if self.search_bar.isVisible():
+            self.search_bar.hide()
+        else:
+            self.annotation_toolbar.hide()
+            self.drawing_toolbar.hide()
+            self.search_bar.show_bar()
+            self.search_bar.raise_()
 
     def _hide_search_bar(self):
         self.search_bar.hide()
@@ -646,12 +653,29 @@ class MainWindow(QMainWindow):
             self.page_manager.update_visible_pages(self.current_page_index)
 
     def show_annotation_toolbar(self):
-        self.annotation_toolbar.show()
-        self.annotation_toolbar.raise_()
+        if self.annotation_toolbar.isVisible():
+            self.annotation_toolbar.hide()
+        else:
+            self.search_bar.hide()
+            self.drawing_toolbar.hide()
+            self.annotation_toolbar.show()
+            self.annotation_toolbar.raise_()
+
+    def _hide_annotation_toolbar(self):
+        self.annotation_toolbar.hide()
 
     def show_drawing_toolbar(self):
-        self.drawing_toolbar.show()
-        self.drawing_toolbar.raise_()
+        if self.drawing_toolbar.isVisible():
+            self.drawing_toolbar.hide()
+        else:
+            self.search_bar.hide()
+            self.annotation_toolbar.hide()
+            self.drawing_toolbar.show()
+            self.drawing_toolbar.raise_()
+
+    def _hide_drawing_toolbar(self):
+        self.drawing_toolbar.hide()
+        self.drawing_toolbar._close_toolbar()
 
     def _on_drawing_mode_changed(self, enabled):
         tool_settings = self.drawing_toolbar.get_current_settings()
