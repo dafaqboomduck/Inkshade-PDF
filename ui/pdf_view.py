@@ -100,52 +100,41 @@ class PDFViewer:
             if current_rect in rects_on_page:
                 current_idx_on_page = rects_on_page.index(current_rect)
 
-        # Get annotations for this page
-        annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
+            # Get annotations for this page
+            annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
+            
+            # Get the PDF page object for link extraction
+            pdf_page = self.pdf_reader_core.doc.load_page(idx) if self.pdf_reader_core.doc else None
 
-        # Create the page widget (now using hybrid approach)
-        from ui.page_widget import PageWidget # ui.page_widget
-        widget = PageWidget(self.page_container)
-        
-        # Set page data with both pixmap and elements
-        widget.set_page_data(
-            page_pixmap=page_pixmap,
-            page_elements=page_elements,
-            page_index=idx,
-            zoom_level=self.zoom,
-            dark_mode=self.dark_mode,
-            search_highlights=rects_on_page,
-            current_highlight_index=current_idx_on_page,
-            annotations=annotations_on_page
-        )
-        
-        # Connect signals
-        widget.link_clicked.connect(self._on_link_clicked)
-        widget.text_selection_changed.connect(self._on_text_selection_changed)
-        
-        # Set drawing mode if active
-        if hasattr(self.main_window, 'drawing_toolbar') and self.main_window.drawing_toolbar.is_in_drawing_mode():
-            tool_settings = self.main_window.drawing_toolbar.get_current_settings()
-            tool, color, stroke_width, filled = tool_settings
-            widget.set_drawing_mode(True, tool, color, stroke_width, filled)
-        
-        # Calculate position and size
-        if self.page_height is None:
-            self.page_height = page_pixmap.height()
-            total_height = (self.pdf_reader_core.total_pages * (self.page_height + self.page_spacing) - self.page_spacing)
-            self.page_container.setMinimumHeight(total_height)
-            self.main_window.page_height = self.page_height
-        
-        # Position the widget
-        container_width = self.page_container.width()
-        widget_width = page_pixmap.width()
-        widget_height = page_pixmap.height()
-        
-        x = (container_width - widget_width) // 2
-        y = idx * (self.page_height + self.page_spacing)
-        
-        widget.setGeometry(x, y, widget_width, widget_height)
-        widget.show()
+            label = ClickablePageLabel(self.page_container)
+            label.set_page_data(
+                pix, text_data, word_data, self.zoom, self.dark_mode, 
+                search_highlights=rects_on_page, 
+                current_highlight_index=current_idx_on_page,
+                annotations=annotations_on_page,
+                page_index=idx,
+                pdf_page=pdf_page  # Pass the page object for link extraction
+            )
+            
+            if hasattr(self.main_window, 'drawing_toolbar') and self.main_window.drawing_toolbar.is_in_drawing_mode():
+                tool_settings = self.main_window.drawing_toolbar.get_current_settings()
+                tool, color, stroke_width, filled = tool_settings
+                label.set_drawing_mode(True, tool, color, stroke_width, filled)
+            
+            label.setAlignment(Qt.AlignCenter)
+            
+            if self.page_height is None:
+                self.page_height = pix.height()
+                total_height = (self.pdf_reader_core.total_pages * 
+                                (self.page_height + self.page_spacing) - self.page_spacing)
+                self.page_container.setMinimumHeight(total_height)
+                self.main_window.page_height = self.page_height 
+            
+            container_width = self.page_container.width()
+            x = (container_width - pix.width()) // 2
+            y = idx * (self.page_height + self.page_spacing)
+            label.setGeometry(x, y, pix.width(), pix.height())
+            label.show()
 
         # Force updates
         widget.update()
