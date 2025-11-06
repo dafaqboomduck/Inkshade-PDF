@@ -489,9 +489,7 @@ class PageWidget(QWidget):
             # Standard single click: Start drag selection
             self.is_selecting = True
             self.selection_start_index = char_index
-            self.selection_end_index = char_index
-            self._update_selection()
-            self.update() # Repaint to show the single-char selection
+            self.selection_end_index = None  # Don't set end index yet
     
     def mouseMoveEvent(self, event):
         """Handle mouse move for selection, link hovering, OR drawing."""
@@ -507,9 +505,11 @@ class PageWidget(QWidget):
         if self.is_selecting and event.buttons() & Qt.LeftButton:
             char_index = self._get_char_index_at_pos(pos_in_page)
             if char_index is not None:
-                self.selection_end_index = char_index
-                self._update_selection()
-                self.update()
+                # Only update selection if we've actually moved to a different character
+                if self.selection_end_index is None or self.selection_end_index != char_index:
+                    self.selection_end_index = char_index
+                    self._update_selection()
+                    self.update()
         
         # 3. Handle Link Hovering
         elif not self.is_selecting:
