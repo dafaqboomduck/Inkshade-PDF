@@ -1,14 +1,20 @@
 import fitz  # PyMuPDF
 from helpers.annotations import AnnotationType, Annotation
 from typing import List
+from PyQt5.QtCore import QObject, pyqtSignal
 
-class PDFExporter:
+class PDFExporter(QObject):
     """Handles exporting annotations to PDF files."""
     
-    @staticmethod
-    def export_annotations_to_pdf(source_pdf_path: str, output_pdf_path: str, annotations: List[Annotation]) -> bool:
+    # Signal for progress updates (optional, can be None)
+    progress_signal = pyqtSignal(int, int)  # current, total
+    
+    def __init__(self):
+        super().__init__()
+    
+    def export_annotations_to_pdf(self, source_pdf_path: str, output_pdf_path: str, annotations: List[Annotation]) -> bool:
         """
-        Export annotations to a PDF file.
+        Export annotations to a PDF file with progress updates.
         
         Args:
             source_pdf_path: Path to the original PDF
@@ -29,15 +35,32 @@ class PDFExporter:
                     annotations_by_page[ann.page_index] = []
                 annotations_by_page[ann.page_index].append(ann)
             
+            total_pages = len(annotations_by_page)
+            current_page = 0
+            
             # Add annotations to each page
             for page_idx, page_annotations in annotations_by_page.items():
                 if page_idx >= len(doc):
                     continue
-                    
+                
+                # Emit progress
+                try:
+                    self.progress_signal.emit(current_page, total_pages)
+                except:
+                    pass  # Signal not connected, ignore
+                
                 page = doc[page_idx]
                 
                 for ann in page_annotations:
-                    PDFExporter._add_annotation_to_page(page, ann)
+                    self._add_annotation_to_page(page, ann)
+                
+                current_page += 1
+            
+            # Emit final progress
+            try:
+                self.progress_signal.emit(total_pages, total_pages)
+            except:
+                pass
             
             # Save the modified PDF
             doc.save(output_pdf_path, garbage=4, deflate=True)
@@ -49,8 +72,7 @@ class PDFExporter:
             print(f"Failed to export annotations to PDF: {e}")
             return False
     
-    @staticmethod
-    def _add_annotation_to_page(page: fitz.Page, annotation: Annotation):
+    def _add_annotation_to_page(self, page: fitz.Page, annotation: Annotation):
         """Add a single annotation to a PDF page."""
         
         try:
