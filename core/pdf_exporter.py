@@ -37,7 +37,11 @@ class PDFExporter:
                 page = doc[page_idx]
                 
                 for ann in page_annotations:
-                    PDFExporter._add_annotation_to_page(page, ann)
+                    try:
+                        PDFExporter._add_annotation_to_page(page, ann)
+                    except Exception as e:
+                        print(f"Failed to add annotation on page {page_idx}: {e}")
+                        continue
             
             # Save the modified PDF
             doc.save(output_pdf_path, garbage=4, deflate=True)
@@ -56,7 +60,7 @@ class PDFExporter:
         if annotation.annotation_type == AnnotationType.HIGHLIGHT:
             # Add highlight annotations
             for quad in annotation.quads:
-                # Convert quad format [x0, y0, x1, y1, x2, y2, x3, y3] to fitz.Quad
+                # Convert quad format [x0, y0, x1, y1, x2, y2, x3, y3] to fitz.Rect
                 rect = fitz.Rect(quad[0], quad[1], quad[2], quad[5])
                 color = [c / 255.0 for c in annotation.color]  # PyMuPDF uses 0-1 range
                 
@@ -77,20 +81,29 @@ class PDFExporter:
         elif annotation.annotation_type == AnnotationType.FREEHAND:
             # Add freehand drawing (ink annotation)
             if annotation.points and len(annotation.points) >= 2:
-                # Convert points to PyMuPDF format
-                ink_list = [[fitz.Point(p[0], p[1]) for p in annotation.points]]
+                # PyMuPDF expects: list of strokes, each stroke is a list of points
+                # Each point must be a fitz.Point object
+                stroke = [fitz.Point(float(p[0]), float(p[1])) for p in annotation.points]
+                ink_list = [stroke]  # Wrap in list as it expects multiple strokes
+                
                 color = [c / 255.0 for c in annotation.color]
                 
                 ink = page.add_ink_annot(ink_list)
                 ink.set_colors(stroke=color)
                 ink.set_border(width=annotation.stroke_width)
-                
-                # Fill if requested (convert to polygon)
-                if annotation.filled:
-                    points = [fitz.Point(p[0], p[1]) for p in annotation.points]
-                    page.draw_polyline(points, color=color, fill=color, width=annotation.stroke_width)
-                
                 ink.update()
+                
+                # For filled freehand, draw as shape
+                if annotation.filled and len(annotation.points) >= 3:
+                    points = [fitz.Point(float(p[0]), float(p[1])) for p in annotation.points]
+                    # Close the shape by adding first point at the end
+                    if points[0] != points[-1]:
+                        points.append(points[0])
+                    
+                    shape = page.new_shape()
+                    shape.draw_polyline(points)
+                    shape.finish(color=color, fill=color, width=annotation.stroke_width)
+                    shape.commit()
         
         elif annotation.annotation_type == AnnotationType.LINE:
             # Add line annotation
@@ -99,7 +112,10 @@ class PDFExporter:
                 end = annotation.points[-1]
                 color = [c / 255.0 for c in annotation.color]
                 
-                line = page.add_line_annot(fitz.Point(start[0], start[1]), fitz.Point(end[0], end[1]))
+                line = page.add_line_annot(
+                    fitz.Point(float(start[0]), float(start[1])), 
+                    fitz.Point(float(end[0]), float(end[1]))
+                )
                 line.set_colors(stroke=color)
                 line.set_border(width=annotation.stroke_width)
                 line.update()
@@ -112,7 +128,10 @@ class PDFExporter:
                 color = [c / 255.0 for c in annotation.color]
                 
                 # PyMuPDF line annotation with arrow ending
-                line = page.add_line_annot(fitz.Point(start[0], start[1]), fitz.Point(end[0], end[1]))
+                line = page.add_line_annot(
+                    fitz.Point(float(start[0]), float(start[1])), 
+                    fitz.Point(float(end[0]), float(end[1]))
+                )
                 line.set_colors(stroke=color)
                 line.set_border(width=annotation.stroke_width)
                 line.line_ends = (0, 2)  # 0=None at start, 2=Arrow at end
@@ -124,17 +143,16 @@ class PDFExporter:
                 start = annotation.points[0]
                 end = annotation.points[-1]
                 
-                x0, y0 = min(start[0], end[0]), min(start[1], end[1])
-                x1, y1 = max(start[0], end[0]), max(start[1], end[1])
+                x0, y0 = min(float(start[0]), float(end[0])), min(float(start[1]), float(end[1]))
+                x1, y1 = max(float(start[0]), float(end[0])), max(float(start[1]), float(end[1]))
                 rect = fitz.Rect(x0, y0, x1, y1)
                 
                 color = [c / 255.0 for c in annotation.color]
                 
+                square = page.add_rect_annot(rect)
                 if annotation.filled:
-                    square = page.add_rect_annot(rect)
                     square.set_colors(stroke=color, fill=color)
                 else:
-                    square = page.add_rect_annot(rect)
                     square.set_colors(stroke=color)
                 
                 square.set_border(width=annotation.stroke_width)
@@ -146,17 +164,16 @@ class PDFExporter:
                 start = annotation.points[0]
                 end = annotation.points[-1]
                 
-                x0, y0 = min(start[0], end[0]), min(start[1], end[1])
-                x1, y1 = max(start[0], end[0]), max(start[1], end[1])
+                x0, y0 = min(float(start[0]), float(end[0])), min(float(start[1]), float(end[1]))
+                x1, y1 = max(float(start[0]), float(end[0])), max(float(start[1]), float(end[1]))
                 rect = fitz.Rect(x0, y0, x1, y1)
                 
                 color = [c / 255.0 for c in annotation.color]
                 
+                circle = page.add_circle_annot(rect)
                 if annotation.filled:
-                    circle = page.add_circle_annot(rect)
                     circle.set_colors(stroke=color, fill=color)
                 else:
-                    circle = page.add_circle_annot(rect)
                     circle.set_colors(stroke=color)
                 
                 circle.set_border(width=annotation.stroke_width)
