@@ -5,8 +5,7 @@ from typing import Optional, List, Tuple
 
 class PageWidget(QWidget):
     """
-    Enhanced page widget that renders PDF elements individually
-    instead of as a rasterized image.
+    Page widget that renders PDF elements individually.
     """
     
     # Signals
@@ -101,7 +100,7 @@ class PageWidget(QWidget):
         # Apply zoom transformation
         painter.scale(self.zoom_level, self.zoom_level)
         
-        # Render in order: vectors -> images -> text -> highlights -> selection
+        # Render in order: vectors -> images -> text
         
         # 1. Render vector elements (background shapes, lines)
         self._render_vectors(painter)
@@ -142,7 +141,6 @@ class PageWidget(QWidget):
             # Set colors based on dark mode
             if vector.fill_color:
                 if self.dark_mode:
-                    # Invert fill color for dark mode
                     fill_color = QColor(
                         255 - vector.fill_color[0],
                         255 - vector.fill_color[1],
@@ -154,7 +152,6 @@ class PageWidget(QWidget):
             
             if vector.stroke_color:
                 if self.dark_mode:
-                    # Invert stroke color for dark mode
                     stroke_color = QColor(
                         255 - vector.stroke_color[0],
                         255 - vector.stroke_color[1],
@@ -179,7 +176,6 @@ class PageWidget(QWidget):
             
             pixmap = image.pixmap
             if self.dark_mode:
-                # Invert image colors for dark mode
                 img = pixmap.toImage()
                 img.invertPixels()
                 pixmap = pixmap.fromImage(img)
@@ -187,42 +183,41 @@ class PageWidget(QWidget):
             painter.drawPixmap(target_rect, pixmap, QRectF(pixmap.rect()))
     
     def _render_text(self, painter):
-        """Render text characters using their original positions."""
+        """Render text spans at their exact positions."""
         if not self.page_elements:
             return
         
-        # Draw each character at its exact position
         for text_elem in self.page_elements.texts:
-            # Set font
+            # Set font - convert PDF points to screen pixels
+            # PDF uses points (1/72 inch), Qt uses pixels
             font = QFont(text_elem.font_name)
-            font.setPointSizeF(text_elem.font_size)
+            # Use the exact font size from PDF without any scaling
+            font.setPixelSize(int(text_elem.font_size))
             painter.setFont(font)
             
-            # Set color (with dark mode inversion)
+            # Set color (with smart dark mode inversion)
             if self.dark_mode:
-                # Check if color is very dark (likely text)
                 brightness = sum(text_elem.color) / 3
                 if brightness < 128:
-                    # Invert dark colors
+                    # Invert dark text
                     color = QColor(
                         255 - text_elem.color[0],
                         255 - text_elem.color[1],
                         255 - text_elem.color[2]
                     )
                 else:
-                    # Keep light colors as-is
+                    # Keep light text
                     color = QColor(*text_elem.color)
             else:
                 color = QColor(*text_elem.color)
             
             painter.setPen(color)
             
-            # Draw character at its baseline position
-            # PDF uses baseline coordinates (bottom-left of character)
+            # Draw text at baseline position (bottom-left of bbox)
             bbox = text_elem.bbox
             painter.drawText(
                 QPointF(bbox[0], bbox[3]),
-                text_elem.char
+                text_elem.text
             )
     
     def _render_search_highlights(self, painter):
@@ -232,7 +227,6 @@ class PageWidget(QWidget):
         
         painter.setPen(Qt.NoPen)
         
-        # Highlight color based on dark mode
         if self.dark_mode:
             highlight_color = QColor(255, 255, 0, 100)
             current_color = QColor(255, 255, 0, 150)
@@ -240,7 +234,6 @@ class PageWidget(QWidget):
             highlight_color = QColor(255, 255, 0, 100)
             current_color = QColor(0, 89, 195, 100)
         
-        # Draw all highlights
         for i, rect in enumerate(self.search_highlights):
             if i == self.current_search_highlight_index:
                 painter.setBrush(QBrush(current_color))
@@ -257,8 +250,6 @@ class PageWidget(QWidget):
     
     def _render_annotations(self, painter):
         """Render user annotations."""
-        # Implementation similar to current page_label.py
-        # This would use the annotation rendering code from your existing implementation
         pass
     
     def _render_selection(self, painter):
@@ -275,9 +266,8 @@ class PageWidget(QWidget):
         
         painter.setBrush(QBrush(selection_color))
         
-        # Group consecutive characters on same line
-        for char_elem in self.selected_chars:
-            bbox = char_elem.bbox
+        # Draw selection rectangles for each selected character
+        for char, bbox in self.selected_chars:
             scaled_rect = QRectF(
                 bbox[0] * self.zoom_level,
                 bbox[1] * self.zoom_level,
@@ -305,7 +295,6 @@ class PageWidget(QWidget):
     
     def _render_current_drawing(self, painter):
         """Render the drawing being created in real-time."""
-        # Similar to existing drawing rendering code
         pass
     
     def mousePressEvent(self, event):
@@ -313,20 +302,14 @@ class PageWidget(QWidget):
         if event.button() == Qt.LeftButton:
             pos_in_page = self._screen_to_page_coords(event.pos())
             
-            # Check if clicking on a link
-            if self.page_elements:
-                from core.pdf_reader import PDFDocumentReader
-                # This would need access to the PDF reader to check links
-                # For now, just handle selection
-                
-                if self.is_drawing_mode:
-                    self.is_currently_drawing = True
-                    self.current_drawing_points = [pos_in_page]
-                else:
-                    self.is_selecting = True
-                    self.selection_start_pos = pos_in_page
-                    self.selection_end_pos = pos_in_page
-                    self._update_selection()
+            if self.is_drawing_mode:
+                self.is_currently_drawing = True
+                self.current_drawing_points = [pos_in_page]
+            else:
+                self.is_selecting = True
+                self.selection_start_pos = pos_in_page
+                self.selection_end_pos = pos_in_page
+                self._update_selection()
     
     def mouseMoveEvent(self, event):
         """Handle mouse move for selection and link hovering."""
@@ -342,7 +325,6 @@ class PageWidget(QWidget):
             self.update()
         
         else:
-            # Check for link hovering
             self._update_hover_state(pos_in_page)
     
     def mouseReleaseEvent(self, event):
@@ -350,14 +332,11 @@ class PageWidget(QWidget):
         if event.button() == Qt.LeftButton:
             if self.is_selecting:
                 self.is_selecting = False
-                # Emit selected text
                 text = self._get_selected_text()
                 self.text_selection_changed.emit(text)
             
             elif self.is_currently_drawing:
                 self.is_currently_drawing = False
-                # Finalize drawing
-                # This would create an annotation
     
     def _screen_to_page_coords(self, screen_pos):
         """Convert screen coordinates to page coordinates."""
@@ -377,16 +356,26 @@ class PageWidget(QWidget):
         x1 = max(self.selection_start_pos[0], self.selection_end_pos[0])
         y1 = max(self.selection_start_pos[1], self.selection_end_pos[1])
         
-        # Find all characters within selection
+        # Find all characters within selection from all text spans
         self.selected_chars = []
         for text_elem in self.page_elements.texts:
-            bbox = text_elem.bbox
-            # Check if character center is within selection
-            char_center_x = (bbox[0] + bbox[2]) / 2
-            char_center_y = (bbox[1] + bbox[3]) / 2
-            
-            if x0 <= char_center_x <= x1 and y0 <= char_center_y <= y1:
-                self.selected_chars.append(text_elem)
+            for char, bbox in text_elem.chars:
+                # Check if ANY part of the character bbox intersects with selection
+                # This is more accurate than just checking the center
+                char_x0, char_y0, char_x1, char_y1 = bbox
+                
+                # Check for intersection
+                intersects = not (char_x1 < x0 or char_x0 > x1 or char_y1 < y0 or char_y0 > y1)
+                
+                if intersects:
+                    # Additional check: at least 30% of character width should be selected
+                    overlap_x0 = max(char_x0, x0)
+                    overlap_x1 = min(char_x1, x1)
+                    overlap_width = overlap_x1 - overlap_x0
+                    char_width = char_x1 - char_x0
+                    
+                    if char_width > 0 and overlap_width / char_width >= 0.3:
+                        self.selected_chars.append((char, bbox))
     
     def _get_selected_text(self) -> str:
         """Get the selected text as a string."""
@@ -394,17 +383,30 @@ class PageWidget(QWidget):
             return ""
         
         # Sort by position (top to bottom, left to right)
-        sorted_chars = sorted(self.selected_chars, key=lambda t: (t.bbox[1], t.bbox[0]))
+        sorted_chars = sorted(self.selected_chars, key=lambda t: (t[1][1], t[1][0]))
         
         # Reconstruct text with line breaks
         result = []
         last_y = None
+        last_x = None
         
-        for char in sorted_chars:
-            if last_y is not None and abs(char.bbox[1] - last_y) > char.font_size * 0.5:
-                result.append('\n')
-            result.append(char.char)
-            last_y = char.bbox[1]
+        for char, bbox in sorted_chars:
+            # Check for new line
+            if last_y is not None:
+                y_diff = abs(bbox[1] - last_y)
+                # Use a smaller threshold for more accurate line detection
+                if y_diff > 5:  # More than 5 points difference = new line
+                    result.append('\n')
+                # Check for significant horizontal gap (likely a space)
+                elif last_x is not None:
+                    x_gap = bbox[0] - last_x
+                    # If gap is larger than typical character width, add space
+                    if x_gap > (bbox[2] - bbox[0]) * 0.5:
+                        result.append(' ')
+            
+            result.append(char)
+            last_y = bbox[1]
+            last_x = bbox[2]
         
         return ''.join(result)
     
@@ -413,7 +415,6 @@ class PageWidget(QWidget):
         if not self.page_elements:
             return
         
-        # Check if hovering over a link
         old_hovered_link = self.hovered_link
         self.hovered_link = None
         
@@ -423,13 +424,11 @@ class PageWidget(QWidget):
                 self.hovered_link = link
                 break
         
-        # Update cursor
         if self.hovered_link:
             self.setCursor(QCursor(Qt.PointingHandCursor))
         else:
             self.setCursor(QCursor(Qt.IBeamCursor if not self.is_drawing_mode else Qt.CrossCursor))
         
-        # Repaint if hover state changed
         if old_hovered_link != self.hovered_link:
             self.update()
     
@@ -453,7 +452,6 @@ class PageWidget(QWidget):
         if filled is not None:
             self.current_drawing_filled = filled
         
-        # Update cursor
         if self.is_drawing_mode:
             self.setCursor(QCursor(Qt.CrossCursor))
         else:
