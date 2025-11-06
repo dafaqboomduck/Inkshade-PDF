@@ -310,6 +310,67 @@ class PDFDocumentReader:
         
         return vector_elements
     
+    def _merge_rects(self, rects):
+        """Helper to find the bounding box of a list of fitz.Rect objects."""
+        if not rects:
+            return None
+
+        min_x0 = min(r.x0 for r in rects)
+        min_y0 = min(r.y0 for r in rects)
+        max_x1 = max(r.x1 for r in rects)
+        max_y1 = max(r.y1 for r in rects)
+        
+        return fitz.Rect(min_x0, min_y0, max_x1, max_y1)
+
+    def _merge_consecutive_rects(self, rects, y_tolerance=3.0, max_height=15.0):
+        """
+        Groups and merges rectangles based on strict vertical proximity (y_tolerance) 
+        and enforces a maximum height (max_height) to prevent merging results 
+        that span multiple lines of text.
+        """
+        if not rects:
+            return []
+
+        merged_results = []
+        
+        # 1. Sort by Y-coordinate (top-to-bottom) then by X-coordinate (left-to-right)
+        rects.sort(key=lambda r: (r.y0, r.x0))
+
+        current_group = [rects[0]]
+        current_merged_rect = self._merge_rects(current_group)
+
+        for i in range(1, len(rects)):
+            current_rect = rects[i]
+            
+            # 1. Vertical Proximity Check (strict for same line/split word)
+            vertical_gap = current_rect.y0 - current_merged_rect.y1
+            
+            # 2. Total Height Check: Don't merge if the resulting box would be too tall.
+            # Normal line height is usually around 12-15 units. We use 18.0 as a safe upper bound.
+            projected_y1 = max(current_rect.y1, current_merged_rect.y1)
+            projected_height = projected_y1 - current_merged_rect.y0
+            
+            # Merge Condition: The gap must be tiny AND the combined height must be reasonable.
+            is_contiguous = (vertical_gap <= y_tolerance) and (projected_height <= max_height)
+
+            if is_contiguous:
+                # Part of the same logical search match, add to the current group
+                current_group.append(current_rect)
+                current_merged_rect = self._merge_rects(current_group)
+            else:
+                # A vertical break occurred or the projected merged box is too tall.
+                merged_results.append(current_merged_rect)
+                
+                # Start a new group
+                current_group = [current_rect]
+                current_merged_rect = self._merge_rects(current_group)
+
+        # Merge and append the last group
+        if current_group:
+            merged_results.append(current_merged_rect)
+            
+        return merged_results
+    
     def _extract_link_elements(self, page: fitz.Page, page_index: int) -> List[LinkElement]:
         """Extract clickable links from the page."""
         link_elements = []
@@ -403,11 +464,17 @@ class PDFDocumentReader:
                 page = self.doc.load_page(i)
                 quads_on_page = page.search_for(search_term, quads=True)
                 
-                for quad in quads_on_page:
-                    self.search_results.append((i, quad.rect))
+                # Convert quads to rects
+                rects_on_page = [q.rect for q in quads_on_page]
+                
+                # Use the new helper to merge consecutive rects on the same line
+                merged_rects = self._merge_consecutive_rects(rects_on_page)
+
+                for rect in merged_rects:
+                    self.search_results.append((i, rect))
             
             self.current_search_index = -1
-        
+
         return len(self.search_results)
     
     def get_toc(self):
