@@ -1,12 +1,18 @@
 from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal
-from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QFont, QCursor, QPixmap, QImage
+from PyQt5.QtGui import (QPainter, QColor, QBrush, QPen, QFont, 
+                         QCursor, QPixmap, QImage, QPainterPath)
 from PyQt5.QtWidgets import QWidget
 from typing import Optional, List, Tuple
+import math
+
+# Imports from your old file for annotations
+from helpers.annotations import Annotation
+from core.annotation_manager import AnnotationType
 
 class PageWidget(QWidget):
     """
     Hybrid page widget that uses PyMuPDF for accurate text rendering
-    but keeps element extraction for selection and links.
+    and custom logic for text selection, links, and annotations.
     """
     
     # Signals
@@ -24,10 +30,11 @@ class PageWidget(QWidget):
         self.dark_mode = False
         
         # Selection state
-        self.selection_start_pos = None
-        self.selection_end_pos = None
+        self.selection_start_index = None
+        self.selection_end_index = None
         self.selected_chars = []
         self.is_selecting = False
+        self._all_chars = []
         
         # Hover state for links
         self.hovered_link = None
@@ -36,12 +43,12 @@ class PageWidget(QWidget):
         self.search_highlights = []
         self.current_search_highlight_index = -1
         
-        # Annotations
+        # Annotations (from old ClickablePageLabel)
         self.annotations = []
         
-        # Drawing state
+        # Drawing state (from old ClickablePageLabel)
         self.is_drawing_mode = False
-        self.current_drawing_tool = None
+        self.current_drawing_tool = AnnotationType.FREEHAND
         self.current_drawing_color = (255, 0, 0)
         self.current_drawing_stroke_width = 2.0
         self.current_drawing_filled = False
@@ -69,6 +76,17 @@ class PageWidget(QWidget):
             self.setMinimumSize(page_pixmap.width(), page_pixmap.height())
             self.setMaximumSize(page_pixmap.width(), page_pixmap.height())
         
+        # Build the flat, sorted list of all characters
+        self._all_chars = []
+        temp_chars = []
+        if self.page_elements:
+            for text_elem in self.page_elements.texts:
+                for char, bbox in text_elem.chars:
+                    temp_chars.append({'char': char, 'bbox': bbox})
+        
+        self._all_chars = sorted(temp_chars, key=lambda c: (c['bbox'][1], c['bbox'][0]))
+        
+        self.clear_selection()
         self.update()
     
     def paintEvent(self, event):
@@ -88,7 +106,7 @@ class PageWidget(QWidget):
         # 1. Render search highlights
         self._render_search_highlights(painter)
         
-        # 2. Render annotations
+        # 2. Render annotations (NOW IMPLEMENTED)
         self._render_annotations(painter)
         
         # 3. Render text selection
@@ -97,7 +115,7 @@ class PageWidget(QWidget):
         # 4. Render link highlights (on hover)
         self._render_link_highlight(painter)
         
-        # 5. Render current drawing
+        # 5. Render current drawing (NOW IMPLEMENTED)
         if self.is_currently_drawing:
             self._render_current_drawing(painter)
         
@@ -132,18 +150,13 @@ class PageWidget(QWidget):
             painter.drawRect(scaled_rect)
     
     def _render_annotations(self, painter):
-        """Render user annotations."""
-        if not self.annotations:
-            return
-        
-        from core.annotation_manager import AnnotationType
-        
+        """Render user annotations. (Logic from ClickablePageLabel)"""
         for annotation in self.annotations:
             color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], 100)
             
             if annotation.annotation_type == AnnotationType.HIGHLIGHT:
-                painter.setPen(Qt.NoPen)
                 painter.setBrush(QBrush(color))
+                painter.setPen(Qt.NoPen)
                 for quad in annotation.quads:
                     rect = QRectF(
                         quad[0] * self.zoom_level,
@@ -155,9 +168,11 @@ class PageWidget(QWidget):
                 painter.setBrush(Qt.NoBrush)
             
             elif annotation.annotation_type == AnnotationType.UNDERLINE:
-                painter.setPen(QPen(color, 2))
+                pen = QPen(color, 2) # Give underline a bit of thickness
+                pen.setCapStyle(Qt.FlatCap)
+                painter.setPen(pen)
                 for quad in annotation.quads:
-                    line_y = quad[5] * self.zoom_level
+                    line_y = (quad[5] * self.zoom_level) + 1 # Offset by 1px
                     painter.drawLine(
                         int(quad[0] * self.zoom_level),
                         int(line_y),
@@ -168,14 +183,11 @@ class PageWidget(QWidget):
             
             # Drawing annotations
             elif annotation.annotation_type in [AnnotationType.FREEHAND, AnnotationType.LINE, 
-                                            AnnotationType.ARROW, AnnotationType.RECTANGLE, 
-                                            AnnotationType.CIRCLE]:
+                                                AnnotationType.ARROW, AnnotationType.RECTANGLE, 
+                                                AnnotationType.CIRCLE]:
                 
                 if not annotation.points or len(annotation.points) < 2:
                     continue
-                
-                from PyQt5.QtGui import QPainterPath
-                import math
                 
                 solid_color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], 255)
                 pen = QPen(solid_color, annotation.stroke_width)
@@ -275,7 +287,6 @@ class PageWidget(QWidget):
         
         painter.setBrush(QBrush(selection_color))
         
-        # Draw selection rectangles for each selected character
         for char, bbox in self.selected_chars:
             scaled_rect = QRectF(
                 bbox[0] * self.zoom_level,
@@ -303,18 +314,13 @@ class PageWidget(QWidget):
         painter.drawRect(scaled_rect)
     
     def _render_current_drawing(self, painter):
-        """Render the drawing being created in real-time."""
-        if not self.current_drawing_points or len(self.current_drawing_points) < 2:
+        """Render the drawing being created in real-time. (Logic from ClickablePageLabel)"""
+        if not self.is_currently_drawing or len(self.current_drawing_points) < 2:
             return
-        
-        from core.annotation_manager import AnnotationType
-        import math
-        
+            
         preview_color = QColor(self.current_drawing_color[0], 
-                            self.current_drawing_color[1], 
-                            self.current_drawing_color[2], 150)
-        
-        from PyQt5.QtGui import QPainterPath
+                               self.current_drawing_color[1], 
+                               self.current_drawing_color[2], 150)
         
         pen = QPen(preview_color, self.current_drawing_stroke_width)
         painter.setPen(pen)
@@ -398,89 +404,72 @@ class PageWidget(QWidget):
         painter.setPen(Qt.NoPen)
     
     def mousePressEvent(self, event):
-        """Handle mouse press for text selection and link clicking."""
+        """Handle mouse press for text selection, link clicking, OR drawing."""
         if event.button() == Qt.LeftButton:
             pos_in_page = self._screen_to_page_coords(event.pos())
             
-            # Check if clicking on a link
-            if self.hovered_link and not self.is_drawing_mode:
-                self.link_clicked.emit(self.hovered_link.link_type, self.hovered_link.destination)
-                return
-            
+            # --- MERGED ---
+            # 1. Handle Drawing
             if self.is_drawing_mode:
                 self.is_currently_drawing = True
                 self.current_drawing_points = [pos_in_page]
-            else:
-                self.is_selecting = True
-                self.selection_start_pos = pos_in_page
-                self.selection_end_pos = pos_in_page
-                self._update_selection()
+                self.update()
+                return  # Stop processing, we are drawing
+            
+            # 2. Handle Link Clicking
+            if self.hovered_link:
+                self.link_clicked.emit(self.hovered_link.link_type, self.hovered_link.destination)
+                return
+            
+            # 3. Handle Text Selection
+            self.is_selecting = True
+            self.selection_start_index = self._get_char_index_at_pos(pos_in_page)
+            self.selection_end_index = self.selection_start_index
+            self._update_selection()
     
     def mouseMoveEvent(self, event):
-        """Handle mouse move for selection and link hovering."""
+        """Handle mouse move for selection, link hovering, OR drawing."""
         pos_in_page = self._screen_to_page_coords(event.pos())
         
+        # --- MERGED ---
+        # 1. Handle Drawing
+        if self.is_drawing_mode and self.is_currently_drawing:
+            self.current_drawing_points.append(pos_in_page)
+            self.update()
+            return  # Stop processing, we are drawing
+        
+        # 2. Handle Text Selection
         if self.is_selecting and event.buttons() & Qt.LeftButton:
-            self.selection_end_pos = pos_in_page
+            self.selection_end_index = self._get_char_index_at_pos(pos_in_page)
             self._update_selection()
             self.update()
         
-        elif self.is_currently_drawing:
-            self.current_drawing_points.append(pos_in_page)
-            self.update()
-        
+        # 3. Handle Link Hovering
         else:
             self._update_hover_state(pos_in_page)
     
     def mouseReleaseEvent(self, event):
-        """Handle mouse release."""
+        """Handle mouse release for selection OR drawing."""
         if event.button() == Qt.LeftButton:
+            
+            # --- MERGED ---
+            # 1. Handle Drawing
+            if self.is_drawing_mode and self.is_currently_drawing:
+                self.is_currently_drawing = False
+                pos_in_page = self._screen_to_page_coords(event.pos())
+                self.current_drawing_points.append(pos_in_page)
+                
+                self._finalize_drawing()
+                
+                self.current_drawing_points = []
+                self.update()
+                return # Stop processing, we finished drawing
+            
+            # 2. Handle Text Selection
             if self.is_selecting:
                 self.is_selecting = False
                 text = self._get_selected_text()
                 self.text_selection_changed.emit(text)
-            
-            elif self.is_currently_drawing:
-                self.is_currently_drawing = False
-                self.current_drawing_points.append(self._screen_to_page_coords(event.pos()))
-                # Finalize drawing
-                self._finalize_drawing()
-                self.current_drawing_points = []
-                self.update()
-    
-    def _finalize_drawing(self):
-        """Create an annotation from the current drawing."""
-        if len(self.current_drawing_points) < 2:
-            return
-        
-        from helpers.annotations import Annotation
-        
-        # Get the main window through parent chain
-        main_window = self.parent()
-        while main_window and not hasattr(main_window, 'annotation_manager'):
-            main_window = main_window.parent()
-        
-        if main_window:
-            # Find which page this widget represents
-            page_index = None
-            for idx, widget in main_window.loaded_pages.items():
-                if widget == self:
-                    page_index = idx
-                    break
-            
-            if page_index is not None:
-                annotation = Annotation(
-                    page_index=page_index,
-                    annotation_type=self.current_drawing_tool,
-                    color=self.current_drawing_color,
-                    points=self.current_drawing_points.copy(),
-                    stroke_width=self.current_drawing_stroke_width,
-                    filled=self.current_drawing_filled
-                )
-                main_window.annotation_manager.add_annotation(annotation)
-                
-                # Refresh this page to show the new annotation
-                main_window._refresh_current_page()
     
     def _screen_to_page_coords(self, screen_pos):
         """Convert screen coordinates to page coordinates."""
@@ -489,72 +478,73 @@ class PageWidget(QWidget):
             screen_pos.y() / self.zoom_level
         )
     
+    def _get_char_index_at_pos(self, pos_in_page):
+        """Find the index of the character closest to the given page coordinates."""
+        x_pos, y_pos = pos_in_page
+        
+        if not self._all_chars:
+            return None
+        
+        min_dist_sq = float('inf')
+        closest_index = 0
+        
+        for i, char_data in enumerate(self._all_chars):
+            bbox = char_data['bbox']
+            center_x = (bbox[0] + bbox[2]) / 2
+            center_y = (bbox[1] + bbox[3]) / 2
+            
+            dist_sq = (x_pos - center_x)**2 + (y_pos - center_y)**2
+            
+            if dist_sq < min_dist_sq:
+                min_dist_sq = dist_sq
+                closest_index = i
+                
+        return closest_index
+
     def _update_selection(self):
-        """Update selected characters based on selection rectangle."""
-        if not self.page_elements or not self.selection_start_pos or not self.selection_end_pos:
+        """Update selected characters based on start and end indices."""
+        self.selected_chars = []
+        
+        if (self.selection_start_index is None or 
+            self.selection_end_index is None or 
+            not self._all_chars):
             return
         
-        # Create selection rectangle
-        x0 = min(self.selection_start_pos[0], self.selection_end_pos[0])
-        y0 = min(self.selection_start_pos[1], self.selection_end_pos[1])
-        x1 = max(self.selection_start_pos[0], self.selection_end_pos[0])
-        y1 = max(self.selection_start_pos[1], self.selection_end_pos[1])
+        start_idx = min(self.selection_start_index, self.selection_end_index)
+        end_idx = max(self.selection_start_index, self.selection_end_index)
         
-        # Find all characters within selection from all text spans
-        self.selected_chars = []
-        for text_elem in self.page_elements.texts:
-            for char, bbox in text_elem.chars:
-                # Check if ANY part of the character bbox intersects with selection
-                char_x0, char_y0, char_x1, char_y1 = bbox
-                
-                # Check for intersection
-                intersects = not (char_x1 < x0 or char_x0 > x1 or char_y1 < y0 or char_y0 > y1)
-                
-                if intersects:
-                    # Additional check: at least 30% of character width should be selected
-                    overlap_x0 = max(char_x0, x0)
-                    overlap_x1 = min(char_x1, x1)
-                    overlap_width = overlap_x1 - overlap_x0
-                    char_width = char_x1 - char_x0
-                    
-                    if char_width > 0 and overlap_width / char_width >= 0.3:
-                        self.selected_chars.append((char, bbox))
+        if start_idx == -1 or end_idx == -1:
+            return
+            
+        for i in range(start_idx, end_idx + 1):
+            char_data = self._all_chars[i]
+            self.selected_chars.append((char_data['char'], char_data['bbox']))
     
     def _get_selected_text(self) -> str:
         """Get the selected text as a string."""
         if not self.selected_chars:
             return ""
         
-        # Sort by position (top to bottom, left to right)
-        sorted_chars = sorted(self.selected_chars, key=lambda t: (t[1][1], t[1][0]))
-        
-        # Reconstruct text with line breaks and spaces
         result = []
         last_y = None
         last_x = None
         last_bbox = None
         
-        for char, bbox in sorted_chars:
-            # Check for new line (vertical gap)
+        for char, bbox in self.selected_chars:
             if last_y is not None:
                 y_diff = abs(bbox[1] - last_y)
-                # New line if Y position changes significantly
-                if y_diff > 3:
+                if y_diff > 3: # Simple line break check
                     result.append('\n')
-                    last_x = None  # Reset horizontal tracking
-                # Check for horizontal gap (space between words)
+                    last_x = None
                 elif last_x is not None and last_bbox is not None:
-                    # Calculate gap between last character's end and current character's start
                     gap = bbox[0] - last_x
-                    # Average character width from last character
                     last_char_width = last_bbox[2] - last_bbox[0]
-                    # If gap is larger than 30% of character width, add space
-                    if gap > last_char_width * 0.3:
+                    if gap > last_char_width * 0.3: # Simple space check
                         result.append(' ')
             
             result.append(char)
             last_y = bbox[1]
-            last_x = bbox[2]  # Right edge of current character
+            last_x = bbox[2]
             last_bbox = bbox
         
         return ''.join(result)
@@ -581,11 +571,45 @@ class PageWidget(QWidget):
         if old_hovered_link != self.hovered_link:
             self.update()
     
+    # --- NEW METHOD (from ClickablePageLabel) ---
+    def _finalize_drawing(self):
+        """Create an annotation from the current drawing."""
+        
+        if len(self.current_drawing_points) < 2:
+            return  # Need at least 2 points
+        
+        # Get the main window through parent chain
+        main_window = self.parent()
+        while main_window and not hasattr(main_window, 'annotation_manager'):
+            main_window = main_window.parent()
+        
+        if main_window:
+            # Find which page this label represents
+            page_index = None
+            for idx, label in main_window.loaded_pages.items():
+                if label == self:
+                    page_index = idx
+                    break
+            
+            if page_index is not None:
+                annotation = Annotation(
+                    page_index=page_index,
+                    annotation_type=self.current_drawing_tool,
+                    color=self.current_drawing_color,
+                    points=self.current_drawing_points.copy(),
+                    stroke_width=self.current_drawing_stroke_width,
+                    filled=self.current_drawing_filled
+                )
+                main_window.annotation_manager.add_annotation(annotation)
+                        
+                # Refresh this page to show the new annotation
+                main_window._refresh_current_page()
+                
     def clear_selection(self):
         """Clear the current text selection."""
         self.selected_chars = []
-        self.selection_start_pos = None
-        self.selection_end_pos = None
+        self.selection_start_index = None
+        self.selection_end_index = None
         self.update()
     
     def set_drawing_mode(self, enabled, tool=None, color=None, stroke_width=None, filled=None):
