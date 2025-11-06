@@ -793,45 +793,45 @@ class MainWindow(QMainWindow):
         self.page_manager.update_page_highlights()
 
     def _create_annotation_from_selection(self, annotation_type, color):
-        """Create annotation from selected text."""
-        if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
-            return
-        
-        current_page_widget = self.loaded_pages[self.current_page_index]
-        selected_chars = current_page_widget.selected_chars
-                
-        if not selected_chars:
-            QMessageBox.information(self, "No Selection", "Please select text before creating an annotation.")
-            return
-        
-        # Convert selected characters to quads
-        quads = self._chars_to_quads(selected_chars)
-                
-        if quads:
-            from helpers.annotations import Annotation
-            annotation = Annotation(
-                page_index=self.current_page_index,
-                annotation_type=annotation_type,
-                color=color,
-                quads=quads
-            )
-            self.annotation_manager.add_annotation(annotation)
-            current_page_widget.clear_selection()
-            self._refresh_current_page()
+            """Create annotation from selected text."""
+            if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
+                return
+            
+            current_page_widget = self.loaded_pages[self.current_page_index]
+            selected_chars = current_page_widget.selected_chars
+                    
+            if not selected_chars:
+                QMessageBox.information(self, "No Selection", "Please select text before creating an annotation.")
+                return
+            
+            # Convert selected characters to quads
+            quads = self._chars_to_quads(selected_chars)
+                    
+            if quads:
+                from helpers.annotations import Annotation
+                annotation = Annotation(
+                    page_index=self.current_page_index,
+                    annotation_type=annotation_type,
+                    color=color,
+                    quads=quads
+                )
+                self.annotation_manager.add_annotation(annotation)
+                current_page_widget.clear_selection()
+                self._refresh_current_page()
 
     def _chars_to_quads(self, selected_chars):
         """Convert selected characters to quad format for annotations."""
         if not selected_chars:
             return []
         
-        # Group characters by line
+        # Group characters by line based on y-position
         lines = {}
-        for char in selected_chars:
-            # Use y-position to determine line
-            line_key = int(char.bbox[1])  # Round to group nearby characters
+        for char, bbox in selected_chars:
+            # Round y-position to group nearby characters
+            line_key = round(bbox[1])
             if line_key not in lines:
                 lines[line_key] = []
-            lines[line_key].append(char)
+            lines[line_key].append((char, bbox))
         
         quads = []
         for line_key, chars_in_line in sorted(lines.items()):
@@ -839,13 +839,13 @@ class MainWindow(QMainWindow):
                 continue
             
             # Sort by x position
-            chars_in_line.sort(key=lambda c: c.bbox[0])
+            chars_in_line.sort(key=lambda c: c[1][0])
             
             # Get bounding box for the line
-            min_x = min(c.bbox[0] for c in chars_in_line)
-            max_x = max(c.bbox[2] for c in chars_in_line)
-            min_y = min(c.bbox[1] for c in chars_in_line)
-            max_y = max(c.bbox[3] for c in chars_in_line)
+            min_x = min(bbox[0] for char, bbox in chars_in_line)
+            max_x = max(bbox[2] for char, bbox in chars_in_line)
+            min_y = min(bbox[1] for char, bbox in chars_in_line)
+            max_y = max(bbox[3] for char, bbox in chars_in_line)
             
             # Create quad [x0, y0, x1, y1, x2, y2, x3, y3]
             quad = [min_x, min_y, max_x, min_y, min_x, max_y, max_x, max_y]
