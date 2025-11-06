@@ -771,7 +771,6 @@ class MainWindow(QMainWindow):
         self.search_bar.clear_search()
         self.page_manager.update_page_highlights()
 
-
     def _create_annotation_from_selection(self, annotation_type, color):
         """Create annotation from character-level selection."""
         if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
