@@ -354,7 +354,7 @@ class ClickablePageLabel(QLabel):
                 main_window.page_manager.jump_to_page(link['page'] + 1)
 
     def _select_word_at_index(self, index):
-        """Select all characters belonging to the same word."""
+        """Select all characters belonging to the same word, including surrounding spaces."""
         if index is None or not self._all_chars:
             return
             
@@ -373,6 +373,18 @@ class ClickablePageLabel(QLabel):
         while (end_idx < len(self._all_chars) - 1 and 
                self._all_chars[end_idx + 1]['word_index'] == target_word_index and
                self._all_chars[end_idx + 1]['line_index'] == target_line_index):
+            end_idx += 1
+            
+        # QOL: Include space before the word if it exists
+        if (start_idx > 0 and 
+            self._all_chars[start_idx - 1]['line_index'] == target_line_index and
+            self._all_chars[start_idx - 1]['char'].isspace()):
+            start_idx -= 1
+            
+        # QOL: Include space after the word if it exists
+        if (end_idx < len(self._all_chars) - 1 and 
+            self._all_chars[end_idx + 1]['line_index'] == target_line_index and
+            self._all_chars[end_idx + 1]['char'].isspace()):
             end_idx += 1
             
         self.selection_start_index = start_idx
@@ -506,8 +518,14 @@ class ClickablePageLabel(QLabel):
         if main_window and hasattr(main_window, 'on_text_selection_changed'):
             main_window.on_text_selection_changed(text)
 
-    def get_selected_text(self):
-        """Get text from selected characters with proper spacing."""
+    def get_selected_text(self, strip_single_word_spaces=True):
+        """
+        Get text from selected characters with proper spacing.
+        
+        Args:
+            strip_single_word_spaces: If True and only one word is selected,
+                                    strip leading/trailing spaces for cleaner copying
+        """
         if not self.selected_chars:
             return ""
         
@@ -533,7 +551,34 @@ class ClickablePageLabel(QLabel):
             last_x = bbox[2]
             last_bbox = bbox
         
-        return ''.join(result)
+        text = ''.join(result)
+        
+        # QOL: If we're getting text for copying (not display) and it's a single word selection,
+        # strip the surrounding spaces we added for visual selection
+        if strip_single_word_spaces and self._is_single_word_selection():
+            text = text.strip()
+        
+        return text
+    
+    def _is_single_word_selection(self):
+        """Check if the current selection is a single word (used for smart space stripping)."""
+        if (self.selection_start_index is None or 
+            self.selection_end_index is None or 
+            not self._all_chars):
+            return False
+        
+        start_idx = min(self.selection_start_index, self.selection_end_index)
+        end_idx = max(self.selection_start_index, self.selection_end_index)
+        
+        # Check if all selected chars (excluding spaces) belong to the same word
+        word_indices = set()
+        for i in range(start_idx, end_idx + 1):
+            if i < len(self._all_chars):
+                char_data = self._all_chars[i]
+                if not char_data['char'].isspace():
+                    word_indices.add(char_data['word_index'])
+        
+        return len(word_indices) == 1
     
     def get_selected_quads(self):
         """Get quads for selected characters grouped by line for annotation."""

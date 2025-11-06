@@ -491,12 +491,15 @@ class MainWindow(QMainWindow):
                 btn.setIcon(icon)
     
     def copy_selected_text(self):
+        """Copy selected text to clipboard with smart space handling."""
         if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
             QMessageBox.warning(self, "No Page Loaded", "Please load a PDF document first.")
             return
 
         current_page_widget = self.loaded_pages[self.current_page_index]
-        selected_text = current_page_widget.get_selected_text()
+        
+        # Get selected text - the True parameter strips spaces for single word selections
+        selected_text = current_page_widget.get_selected_text(strip_single_word_spaces=True)
         
         if selected_text:
             pyperclip.copy(selected_text)
