@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
             event.accept()
 
     def save_annotations_to_pdf(self):
-        """Save annotations to PDF file using OS save dialog."""
+        """Save annotations to PDF file."""
         if not self.pdf_reader.doc or not self.annotation_manager.pdf_path:
             QMessageBox.warning(self, "No PDF", "No PDF document is currently loaded.")
             return False
@@ -141,111 +141,90 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No Annotations", "There are no annotations to save.")
             return False
         
-        # Use OS save dialog - default to original filename
-        original_path = self.annotation_manager.pdf_path
-        default_filename = os.path.basename(original_path)
-        default_dir = os.path.dirname(original_path)
+        # Let user choose where to save (default to current file location)
+        default_name = os.path.basename(self.annotation_manager.pdf_path)
+        default_dir = os.path.dirname(self.annotation_manager.pdf_path)
+        default_path = os.path.join(default_dir, default_name)
         
-        # Open native OS save dialog
         output_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save PDF",
-            os.path.join(default_dir, default_filename),
+            "Save Annotated PDF",
+            default_path,
             "PDF Files (*.pdf)"
         )
         
-        # If user cancelled
         if not output_path:
             return False
         
-        try:
-            # Check if saving in-place (same file)
-            saving_inplace = os.path.normpath(output_path) == os.path.normpath(original_path)
+        # Store info before closing
+        temp_annotations = self.annotation_manager.annotations.copy()
+        original_pdf_path = self.annotation_manager.pdf_path
+        saving_to_same_file = os.path.abspath(output_path) == os.path.abspath(original_pdf_path)
+        
+        # Always close the document before saving
+        self.pdf_reader.close_document()
+        
+        # If saving to same file, use a temporary file then replace
+        if saving_to_same_file:
+            import tempfile
+            import shutil
             
-            if saving_inplace:
-                # Need to close the PDF first, save to temp, then replace
-                temp_annotations = self.annotation_manager.annotations.copy()
-                
-                # Create temporary file
-                temp_fd, temp_path = tempfile.mkstemp(suffix='.pdf')
-                os.close(temp_fd)
-                
-                # Close the current document
-                self.pdf_reader.close_document()
-                
-                # Export to temporary file
+            # Create temp file in same directory to ensure same filesystem
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.pdf', dir=default_dir)
+            os.close(temp_fd)
+            
+            try:
+                # Export to temp file
                 success = PDFExporter.export_annotations_to_pdf(
-                    original_path,
+                    original_pdf_path,
                     temp_path,
                     temp_annotations
                 )
                 
                 if success:
-                    # Replace original with annotated version
+                    # Replace original with temp file
                     shutil.move(temp_path, output_path)
-                    
-                    # Mark as saved and delete JSON
-                    self.annotation_manager.mark_saved()
-                    self.annotation_manager.delete_json_file()
-                    
-                    QMessageBox.information(
-                        self,
-                        "Success",
-                        "PDF saved successfully!\n\nThe document will now be reloaded."
-                    )
-                    
-                    # Reload the PDF
-                    self.load_pdf(output_path)
-                    return True
                 else:
-                    # Clean up temp file
+                    # Clean up temp file on failure
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
-                    
-                    QMessageBox.critical(
-                        self,
-                        "Save Failed",
-                        "Failed to save annotations to PDF."
-                    )
-                    
-                    # Reload original document
-                    self.load_pdf(original_path)
-                    return False
-            else:
-                # Saving as new file - can export directly
-                success = PDFExporter.export_annotations_to_pdf(
-                    original_path,
-                    output_path,
-                    self.annotation_manager.annotations
-                )
-                
-                if success:
-                    # Mark as saved and delete JSON
-                    self.annotation_manager.mark_saved()
-                    self.annotation_manager.delete_json_file()
-                    
-                    QMessageBox.information(
-                        self,
-                        "Success",
-                        f"PDF saved successfully to:\n{os.path.basename(output_path)}"
-                    )
-                    return True
-                else:
-                    QMessageBox.critical(
-                        self,
-                        "Save Failed",
-                        "Failed to save annotations to PDF."
-                    )
-                    return False
-                    
-        except Exception as e:
+            except Exception as e:
+                print(f"Error during save: {e}")
+                success = False
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+        else:
+            # Saving to different file - direct export
+            success = PDFExporter.export_annotations_to_pdf(
+                original_pdf_path,
+                output_path,
+                temp_annotations
+            )
+        
+        if success:
+            # Delete the JSON file since annotations are now in the PDF
+            self.annotation_manager.delete_json_file()
+            self.annotation_manager.mark_saved()
+            
+            QMessageBox.information(
+                self,
+                "Success",
+                "Annotations saved successfully to PDF!"
+            )
+            
+            # Reload the PDF
+            self.load_pdf(output_path)
+            return True
+        else:
             QMessageBox.critical(
                 self,
-                "Error",
-                f"An error occurred while saving:\n{str(e)}"
+                "Save Failed",
+                "Failed to save annotations to PDF."
             )
+            # Reopen the original file if save failed
+            self.load_pdf(original_pdf_path)
             return False
-        
+    
     def setup_ui(self):
         # TOP TOOLBAR
         self.top_frame = QFrame()
@@ -603,23 +582,26 @@ class MainWindow(QMainWindow):
             self.page_edit.setValidator(QIntValidator(1, total_pages, self))
             self.file_name_label.setText(os.path.basename(file_path))
             
+            # Clear old annotations first
+            self.annotation_manager.clear_all()
+            
             # Set PDF path in annotation manager
             self.annotation_manager.set_pdf_path(file_path)
             
-            # Try to auto-load existing annotations from app data
+            # Try to auto-load existing annotations from JSON
             if self.annotation_manager.auto_load_annotations():
                 num_annotations = self.annotation_manager.get_annotation_count()
-                # Silently load - don't show message unless you want to
-                # If you want to notify: 
-                # QMessageBox.information(self, "Annotations Loaded", 
-                #     f"Restored {num_annotations} annotation(s) from previous session.")
+                QMessageBox.information(
+                    self,
+                    "Annotations Loaded",
+                    f"Loaded {num_annotations} existing annotation(s) from previous session."
+                )
             
             self.load_toc_data()
             self.page_manager.clear_all()
             self.scroll_area.verticalScrollBar().setValue(0)
             self.current_page_index = 0            
             self.update_visible_pages()
-
     
     def update_visible_pages(self, desired_page=None):
         if desired_page is not None:
