@@ -1,11 +1,12 @@
 from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal
-from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QFont, QCursor
+from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QFont, QCursor, QPixmap, QImage
 from PyQt5.QtWidgets import QWidget
 from typing import Optional, List, Tuple
 
 class PageWidget(QWidget):
     """
-    Page widget that renders PDF elements individually.
+    Hybrid page widget that uses PyMuPDF for accurate text rendering
+    but keeps element extraction for selection and links.
     """
     
     # Signals
@@ -17,6 +18,7 @@ class PageWidget(QWidget):
         
         # Page data
         self.page_elements = None
+        self.page_pixmap = None  # Rendered page image
         self.page_index = 0
         self.zoom_level = 1.0
         self.dark_mode = False
@@ -49,9 +51,10 @@ class PageWidget(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
     
-    def set_page_data(self, page_elements, page_index, zoom_level, dark_mode,
+    def set_page_data(self, page_pixmap, page_elements, page_index, zoom_level, dark_mode,
                      search_highlights=None, current_highlight_index=-1, annotations=None):
         """Set the page data and rendering parameters."""
+        self.page_pixmap = page_pixmap
         self.page_elements = page_elements
         self.page_index = page_index
         self.zoom_level = zoom_level
@@ -61,164 +64,44 @@ class PageWidget(QWidget):
         self.current_search_highlight_index = current_highlight_index
         self.annotations = annotations if annotations else []
         
-        # Calculate widget size based on page dimensions
-        if page_elements:
-            width = int(page_elements.width * zoom_level)
-            height = int(page_elements.height * zoom_level)
-            self.setMinimumSize(width, height)
-            self.setMaximumSize(width, height)
+        # Calculate widget size based on pixmap
+        if page_pixmap:
+            self.setMinimumSize(page_pixmap.width(), page_pixmap.height())
+            self.setMaximumSize(page_pixmap.width(), page_pixmap.height())
         
         self.update()
     
     def paintEvent(self, event):
-        """Custom paint event to render PDF elements."""
-        if not self.page_elements:
+        """Custom paint event to render the page."""
+        if not self.page_pixmap:
             return
         
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.TextAntialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         
-        # Fill page background with appropriate color
-        if self.dark_mode:
-            page_bg_color = QColor(50, 50, 50)  # Slightly lighter than app background
-        else:
-            page_bg_color = QColor(255, 255, 255)
+        # Draw the rendered page image
+        painter.drawPixmap(0, 0, self.page_pixmap)
         
-        painter.fillRect(self.rect(), page_bg_color)
+        # Now draw overlays (search highlights, selection, etc.)
         
-        # Add subtle border/shadow effect
-        border_pen = QPen(QColor(0, 0, 0, 30) if not self.dark_mode else QColor(0, 0, 0, 60))
-        border_pen.setWidth(1)
-        painter.setPen(border_pen)
-        painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
-        
-        # Save painter state
-        painter.save()
-        
-        # Apply zoom transformation
-        painter.scale(self.zoom_level, self.zoom_level)
-        
-        # Render in order: vectors -> images -> text
-        
-        # 1. Render vector elements (background shapes, lines)
-        self._render_vectors(painter)
-        
-        # 2. Render images
-        self._render_images(painter)
-        
-        # 3. Render text
-        self._render_text(painter)
-        
-        # Restore painter state for overlays
-        painter.restore()
-        
-        # 4. Render search highlights (in screen coordinates)
+        # 1. Render search highlights
         self._render_search_highlights(painter)
         
-        # 5. Render annotations
+        # 2. Render annotations
         self._render_annotations(painter)
         
-        # 6. Render text selection
+        # 3. Render text selection
         self._render_selection(painter)
         
-        # 7. Render link highlights (on hover)
+        # 4. Render link highlights (on hover)
         self._render_link_highlight(painter)
         
-        # 8. Render current drawing
+        # 5. Render current drawing
         if self.is_currently_drawing:
             self._render_current_drawing(painter)
         
         painter.end()
-    
-    def _render_vectors(self, painter):
-        """Render vector graphics."""
-        if not self.page_elements:
-            return
-        
-        for vector in self.page_elements.vectors:
-            # Set colors based on dark mode
-            if vector.fill_color:
-                if self.dark_mode:
-                    fill_color = QColor(
-                        255 - vector.fill_color[0],
-                        255 - vector.fill_color[1],
-                        255 - vector.fill_color[2]
-                    )
-                else:
-                    fill_color = QColor(*vector.fill_color)
-                painter.fillPath(vector.path, QBrush(fill_color))
-            
-            if vector.stroke_color:
-                if self.dark_mode:
-                    stroke_color = QColor(
-                        255 - vector.stroke_color[0],
-                        255 - vector.stroke_color[1],
-                        255 - vector.stroke_color[2]
-                    )
-                else:
-                    stroke_color = QColor(*vector.stroke_color)
-                
-                pen = QPen(stroke_color)
-                pen.setWidthF(vector.line_width)
-                painter.setPen(pen)
-                painter.drawPath(vector.path)
-    
-    def _render_images(self, painter):
-        """Render embedded images."""
-        if not self.page_elements:
-            return
-        
-        for image in self.page_elements.images:
-            bbox = image.bbox
-            target_rect = QRectF(bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1])
-            
-            pixmap = image.pixmap
-            if self.dark_mode:
-                img = pixmap.toImage()
-                img.invertPixels()
-                pixmap = pixmap.fromImage(img)
-            
-            painter.drawPixmap(target_rect, pixmap, QRectF(pixmap.rect()))
-    
-    def _render_text(self, painter):
-        """Render text spans at their exact positions."""
-        if not self.page_elements:
-            return
-        
-        for text_elem in self.page_elements.texts:
-            # Set font - convert PDF points to screen pixels
-            # PDF uses points (1/72 inch), Qt uses pixels
-            font = QFont(text_elem.font_name)
-            # Use the exact font size from PDF without any scaling
-            font.setPixelSize(int(text_elem.font_size))
-            painter.setFont(font)
-            
-            # Set color (with smart dark mode inversion)
-            if self.dark_mode:
-                brightness = sum(text_elem.color) / 3
-                if brightness < 128:
-                    # Invert dark text
-                    color = QColor(
-                        255 - text_elem.color[0],
-                        255 - text_elem.color[1],
-                        255 - text_elem.color[2]
-                    )
-                else:
-                    # Keep light text
-                    color = QColor(*text_elem.color)
-            else:
-                color = QColor(*text_elem.color)
-            
-            painter.setPen(color)
-            
-            # Draw text at baseline position (bottom-left of bbox)
-            bbox = text_elem.bbox
-            painter.drawText(
-                QPointF(bbox[0], bbox[3]),
-                text_elem.text
-            )
     
     def _render_search_highlights(self, painter):
         """Render search result highlights."""
@@ -302,6 +185,11 @@ class PageWidget(QWidget):
         if event.button() == Qt.LeftButton:
             pos_in_page = self._screen_to_page_coords(event.pos())
             
+            # Check if clicking on a link
+            if self.hovered_link and not self.is_drawing_mode:
+                self.link_clicked.emit(self.hovered_link.link_type, self.hovered_link.destination)
+                return
+            
             if self.is_drawing_mode:
                 self.is_currently_drawing = True
                 self.current_drawing_points = [pos_in_page]
@@ -361,7 +249,6 @@ class PageWidget(QWidget):
         for text_elem in self.page_elements.texts:
             for char, bbox in text_elem.chars:
                 # Check if ANY part of the character bbox intersects with selection
-                # This is more accurate than just checking the center
                 char_x0, char_y0, char_x1, char_y1 = bbox
                 
                 # Check for intersection
@@ -385,28 +272,34 @@ class PageWidget(QWidget):
         # Sort by position (top to bottom, left to right)
         sorted_chars = sorted(self.selected_chars, key=lambda t: (t[1][1], t[1][0]))
         
-        # Reconstruct text with line breaks
+        # Reconstruct text with line breaks and spaces
         result = []
         last_y = None
         last_x = None
+        last_bbox = None
         
         for char, bbox in sorted_chars:
-            # Check for new line
+            # Check for new line (vertical gap)
             if last_y is not None:
                 y_diff = abs(bbox[1] - last_y)
-                # Use a smaller threshold for more accurate line detection
-                if y_diff > 5:  # More than 5 points difference = new line
+                # New line if Y position changes significantly
+                if y_diff > 3:
                     result.append('\n')
-                # Check for significant horizontal gap (likely a space)
-                elif last_x is not None:
-                    x_gap = bbox[0] - last_x
-                    # If gap is larger than typical character width, add space
-                    if x_gap > (bbox[2] - bbox[0]) * 0.5:
+                    last_x = None  # Reset horizontal tracking
+                # Check for horizontal gap (space between words)
+                elif last_x is not None and last_bbox is not None:
+                    # Calculate gap between last character's end and current character's start
+                    gap = bbox[0] - last_x
+                    # Average character width from last character
+                    last_char_width = last_bbox[2] - last_bbox[0]
+                    # If gap is larger than 30% of character width, add space
+                    if gap > last_char_width * 0.3:
                         result.append(' ')
             
             result.append(char)
             last_y = bbox[1]
-            last_x = bbox[2]
+            last_x = bbox[2]  # Right edge of current character
+            last_bbox = bbox
         
         return ''.join(result)
     

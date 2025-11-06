@@ -1,6 +1,5 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QWidget, QVBoxLayout
-from ui.page_widget import PageWidget
 
 class PDFViewer:
     def __init__(self, main_window, page_container_widget, scroll_area_widget, pdf_reader_core, annotation_manager):
@@ -78,8 +77,14 @@ class PDFViewer:
                 self._load_and_display_page(idx)
 
     def _load_and_display_page(self, idx):
-        """Parses page elements and creates an enhanced display widget."""
-        # Get parsed page elements from the enhanced PDF reader
+        """Renders page using PyMuPDF and extracts elements for interaction."""
+        # Render page to pixmap using PyMuPDF
+        page_pixmap = self.pdf_reader_core.render_page(idx, self.zoom, self.dark_mode)
+        
+        if not page_pixmap:
+            return
+        
+        # Get parsed page elements for selection and links
         page_elements = self.pdf_reader_core.get_page_elements(idx, use_cache=True)
         
         if not page_elements:
@@ -98,11 +103,13 @@ class PDFViewer:
         # Get annotations for this page
         annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
 
-        # Create the enhanced page widget
+        # Create the page widget (now using hybrid approach)
+        from ui.page_widget import PageWidget
         widget = PageWidget(self.page_container)
         
-        # Set page data
+        # Set page data with both pixmap and elements
         widget.set_page_data(
+            page_pixmap=page_pixmap,
             page_elements=page_elements,
             page_index=idx,
             zoom_level=self.zoom,
@@ -124,7 +131,7 @@ class PDFViewer:
         
         # Calculate position and size
         if self.page_height is None:
-            self.page_height = int(page_elements.height * self.zoom)
+            self.page_height = page_pixmap.height()
             total_height = (self.pdf_reader_core.total_pages * 
                             (self.page_height + self.page_spacing) - self.page_spacing)
             self.page_container.setMinimumHeight(total_height)
@@ -132,8 +139,8 @@ class PDFViewer:
         
         # Position the widget
         container_width = self.page_container.width()
-        widget_width = int(page_elements.width * self.zoom)
-        widget_height = int(page_elements.height * self.zoom)
+        widget_width = page_pixmap.width()
+        widget_height = page_pixmap.height()
         
         x = (container_width - widget_width) // 2
         y = idx * (self.page_height + self.page_spacing)
