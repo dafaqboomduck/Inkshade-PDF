@@ -4,7 +4,8 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QScrollArea, QLineEdit, QFrame,
     QMessageBox, QSpacerItem, QSizePolicy, QApplication, 
-    QDockWidget, QTreeWidget, QTreeWidgetItem, QToolButton
+    QDockWidget, QTreeWidget, QTreeWidgetItem, QToolButton,
+    QProgressDialog
 )
 import pyperclip
 import os
@@ -14,6 +15,7 @@ from core.pdf_reader import PDFDocumentReader
 from core.user_input import UserInputHandler
 from core.annotation_manager import AnnotationManager
 from core.pdf_exporter import PDFExporter
+from core.export_worker import ExportWorker
 from styles import apply_style
 from ui.pdf_view import PDFViewer
 from ui.toc_display import TOCWidget
@@ -132,7 +134,7 @@ class MainWindow(QMainWindow):
             event.accept()
 
     def save_annotations_to_pdf(self):
-        """Save annotations to PDF file."""
+        """Save annotations to PDF file using background thread."""
         if not self.pdf_reader.doc or not self.annotation_manager.pdf_path:
             QMessageBox.warning(self, "No PDF", "No PDF document is currently loaded.")
             return False
@@ -164,66 +166,64 @@ class MainWindow(QMainWindow):
         # Always close the document before saving
         self.pdf_reader.close_document()
         
-        # If saving to same file, use a temporary file then replace
-        if saving_to_same_file:
-            import tempfile
-            import shutil
-            
-            # Create temp file in same directory to ensure same filesystem
-            temp_fd, temp_path = tempfile.mkstemp(suffix='.pdf', dir=default_dir)
-            os.close(temp_fd)
-            
-            try:
-                # Export to temp file
-                success = PDFExporter.export_annotations_to_pdf(
-                    original_pdf_path,
-                    temp_path,
-                    temp_annotations
-                )
-                
-                if success:
-                    # Replace original with temp file
-                    shutil.move(temp_path, output_path)
-                else:
-                    # Clean up temp file on failure
-                    if os.path.exists(temp_path):
-                        os.remove(temp_path)
-            except Exception as e:
-                print(f"Error during save: {e}")
-                success = False
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-        else:
-            # Saving to different file - direct export
-            success = PDFExporter.export_annotations_to_pdf(
-                original_pdf_path,
-                output_path,
-                temp_annotations
-            )
+        # Create progress dialog
+        progress = QProgressDialog("Preparing to export annotations...", None, 0, 100, self)
+        progress.setWindowTitle("Saving PDF")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setCancelButton(None)  # No cancel button - operation must complete
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.show()
         
-        if success:
-            # Delete the JSON file since annotations are now in the PDF
-            self.annotation_manager.delete_json_file()
-            self.annotation_manager.mark_saved()
+        # Create and configure worker thread
+        self.export_worker = ExportWorker(
+            original_pdf_path,
+            output_path,
+            temp_annotations,
+            use_temp_file=saving_to_same_file
+        )
+        
+        # Connect signals
+        def on_progress(message):
+            progress.setLabelText(message)
+        
+        def on_page_progress(current, total):
+            if total > 0:
+                percent = int((current / total) * 100)
+                progress.setValue(percent)
+                progress.setLabelText(f"Processing annotations: {current}/{total} pages")
+        
+        def on_finished(success, message):
+            progress.close()
             
-            QMessageBox.information(
-                self,
-                "Success",
-                "Annotations saved successfully to PDF!"
-            )
+            if success:
+                # Delete the JSON file since annotations are now in the PDF
+                self.annotation_manager.delete_json_file()
+                self.annotation_manager.mark_saved()
+                
+                QMessageBox.information(self, "Success", message)
+                
+                # Reload the PDF
+                self.load_pdf(output_path)
+            else:
+                QMessageBox.critical(self, "Save Failed", message)
+                
+                # Reopen the original file if save failed
+                self.load_pdf(original_pdf_path)
             
-            # Reload the PDF
-            self.load_pdf(output_path)
-            return True
-        else:
-            QMessageBox.critical(
-                self,
-                "Save Failed",
-                "Failed to save annotations to PDF."
-            )
-            # Reopen the original file if save failed
-            self.load_pdf(original_pdf_path)
-            return False
+            # Clean up worker
+            self.export_worker.deleteLater()
+            self.export_worker = None
+        
+        self.export_worker.progress.connect(on_progress)
+        self.export_worker.page_progress.connect(on_page_progress)
+        self.export_worker.finished.connect(on_finished)
+        
+        # Start the export in background
+        self.export_worker.start()
+        
+        return True
     
     def setup_ui(self):
         # TOP TOOLBAR
