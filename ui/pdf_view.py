@@ -104,7 +104,7 @@ class PDFViewer:
         annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
 
         # Create the page widget (now using hybrid approach)
-        from ui.page_widget import PageWidget
+        from ui.page_widget import PageWidget # ui.page_widget
         widget = PageWidget(self.page_container)
         
         # Set page data with both pixmap and elements
@@ -132,8 +132,7 @@ class PDFViewer:
         # Calculate position and size
         if self.page_height is None:
             self.page_height = page_pixmap.height()
-            total_height = (self.pdf_reader_core.total_pages * 
-                            (self.page_height + self.page_spacing) - self.page_spacing)
+            total_height = (self.pdf_reader_core.total_pages * (self.page_height + self.page_spacing) - self.page_spacing)
             self.page_container.setMinimumHeight(total_height)
             self.main_window.page_height = self.page_height
         
@@ -242,6 +241,7 @@ class PDFViewer:
             annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
             
             widget.set_page_data(
+                page_pixmap=widget.page_pixmap,  # <-- THIS IS THE FIX
                 page_elements=page_elements,
                 page_index=idx,
                 zoom_level=self.zoom,
