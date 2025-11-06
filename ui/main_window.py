@@ -793,20 +793,17 @@ class MainWindow(QMainWindow):
         self.page_manager.update_page_highlights()
 
     def _create_annotation_from_selection(self, annotation_type, color):
-            """Create annotation from selected text."""
-            if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
-                return
+        """Create annotation from character-level selection."""
+        if self.pdf_reader.doc is None or self.current_page_index not in self.loaded_pages:
+            return
+        
+        current_page_widget = self.loaded_pages[self.current_page_index]
+        
+        # Check if we have character-level selection
+        if hasattr(current_page_widget, 'selected_chars') and current_page_widget.selected_chars:
+            # Character-level selection
+            quads = current_page_widget.get_selected_quads()
             
-            current_page_widget = self.loaded_pages[self.current_page_index]
-            selected_chars = current_page_widget.selected_chars
-                    
-            if not selected_chars:
-                QMessageBox.information(self, "No Selection", "Please select text before creating an annotation.")
-                return
-            
-            # Convert selected characters to quads
-            quads = self._chars_to_quads(selected_chars)
-                    
             if quads:
                 from helpers.annotations import Annotation
                 annotation = Annotation(
@@ -816,8 +813,27 @@ class MainWindow(QMainWindow):
                     quads=quads
                 )
                 self.annotation_manager.add_annotation(annotation)
-                current_page_widget.clear_selection()
+                current_page_widget.selected_chars = []
+                current_page_widget.selection_rects = []
                 self._refresh_current_page()
+        elif hasattr(current_page_widget, 'selected_words') and current_page_widget.selected_words:
+            # Fall back to word-level selection for backwards compatibility
+            quads = self._words_to_quads(current_page_widget.selected_words)
+            
+            if quads:
+                from helpers.annotations import Annotation
+                annotation = Annotation(
+                    page_index=self.current_page_index,
+                    annotation_type=annotation_type,
+                    color=color,
+                    quads=quads
+                )
+                self.annotation_manager.add_annotation(annotation)
+                current_page_widget.selected_words.clear()
+                current_page_widget.selection_rects = []
+                self._refresh_current_page()
+        else:
+            QMessageBox.information(self, "No Selection", "Please select text before creating an annotation.")
 
     def _chars_to_quads(self, selected_chars):
         """Convert selected characters to quad format for annotations."""
