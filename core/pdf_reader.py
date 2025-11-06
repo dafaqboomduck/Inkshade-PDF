@@ -1,6 +1,10 @@
-import fitz # PyMuPDF
-from PyQt5.QtGui import QImage, QPixmap
+import fitz  # PyMuPDF
+from PyQt5.QtGui import QImage, QPixmap, QPainterPath
+from PyQt5.QtCore import QRectF, QPointF
 from PyQt5.QtWidgets import QMessageBox
+from typing import List, Tuple, Optional, Dict
+from helpers.pdf_elements import (TextElement, ImageElement, 
+                                  VectorElement, LinkElement, PageElements)
 
 class PDFDocumentReader:
     def __init__(self):
@@ -10,22 +14,26 @@ class PDFDocumentReader:
         self.current_search_index = -1
         self.current_search_term = ""
         self.toc = []
-
+        
+        # Cache for parsed page elements
+        self._page_elements_cache: Dict[int, PageElements] = {}
+        
     def load_pdf(self, file_path):
         """Loads a PDF document and returns the number of pages."""
         try:
             self.doc = fitz.open(file_path)
             self.total_pages = self.doc.page_count
             self._clear_search()
-
+            self._page_elements_cache.clear()
+            
             # Get detailed TOC with positioning info
             self.toc = self.doc.get_toc(False)
-
+            
             return True, self.total_pages
         except Exception as e:
             QMessageBox.critical(None, "Error", f"Error loading PDF: {e}")
             return False, 0
-        
+    
     def close_document(self):
         """Closes the current PDF document and clears all state."""
         if self.doc:
@@ -33,105 +41,362 @@ class PDFDocumentReader:
             self.doc = None
         self.total_pages = 0
         self._clear_search()
-
-    def render_page(self, page_index, zoom_level, dark_mode):
-        """Renders a single page of the PDF to a pixmap and extracts its text and word data."""
+        self._page_elements_cache.clear()
+    
+    def get_page_elements(self, page_index: int, use_cache: bool = True) -> Optional[PageElements]:
+        """
+        Extracts and returns all elements from a page.
+        
+        Args:
+            page_index: Zero-based page index
+            use_cache: Whether to use cached elements if available
+            
+        Returns:
+            PageElements object containing all parsed elements
+        """
         if not self.doc or page_index >= self.total_pages:
-            return None, None, None
+            return None
+        
+        # Check cache first
+        if use_cache and page_index in self._page_elements_cache:
+            return self._page_elements_cache[page_index]
         
         try:
             page = self.doc.load_page(page_index)
-            mat = fitz.Matrix(zoom_level, zoom_level)
             
-            pix = page.get_pixmap(matrix=mat)
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
-            if dark_mode:
-                img.invertPixels()
-            pixmap = QPixmap.fromImage(img)
+            # Extract elements
+            texts = self._extract_text_elements(page, page_index)
+            images = self._extract_image_elements(page, page_index)
+            vectors = self._extract_vector_elements(page, page_index)
+            links = self._extract_link_elements(page, page_index)
             
-            text_data = page.get_text("dict", sort=True)
-            word_data = page.get_text("words", sort=True)
+            page_rect = page.rect
+            elements = PageElements(
+                texts=texts,
+                images=images,
+                vectors=vectors,
+                links=links,
+                width=page_rect.width,
+                height=page_rect.height
+            )
             
-            return pixmap, text_data, word_data
+            # Cache the result
+            self._page_elements_cache[page_index] = elements
+            
+            return elements
+            
         except Exception as e:
-            QMessageBox.critical(None, "Error", f"Error rendering page {page_index+1}: {e}")
-            return None, None, None
-
+            QMessageBox.critical(None, "Error", f"Error parsing page {page_index+1}: {e}")
+            return None
+    
+    def _extract_text_elements(self, page: fitz.Page, page_index: int) -> List[TextElement]:
+        """Extract individual text characters with their properties."""
+        text_elements = []
+        
+        try:
+            # Use rawdict to get actual character positions
+            blocks = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+            
+            for block in blocks.get("blocks", []):
+                if block.get("type") != 0:  # Not a text block
+                    continue
+                
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        font_name = span.get("font", "")
+                        font_size = span.get("size", 12)
+                        color_int = span.get("color", 0)
+                        
+                        # Convert color from integer to RGB
+                        color = (
+                            (color_int >> 16) & 0xFF,
+                            (color_int >> 8) & 0xFF,
+                            color_int & 0xFF
+                        )
+                        
+                        # Get character-level information
+                        chars = span.get("chars", [])
+                        
+                        if chars:
+                            # Use actual character bounding boxes
+                            for char_info in chars:
+                                char = char_info.get("c", "")
+                                bbox = char_info.get("bbox", (0, 0, 0, 0))
+                                
+                                text_elem = TextElement(
+                                    char=char,
+                                    bbox=bbox,
+                                    font_name=font_name,
+                                    font_size=font_size,
+                                    color=color,
+                                    page_index=page_index
+                                )
+                                text_elements.append(text_elem)
+                        else:
+                            # Fallback: use span-level bbox and estimate positions
+                            text = span.get("text", "")
+                            bbox = span.get("bbox", (0, 0, 0, 0))
+                            
+                            if len(text) > 0:
+                                char_width = (bbox[2] - bbox[0]) / len(text)
+                                
+                                for i, char in enumerate(text):
+                                    char_x0 = bbox[0] + (i * char_width)
+                                    char_x1 = char_x0 + char_width
+                                    char_bbox = (char_x0, bbox[1], char_x1, bbox[3])
+                                    
+                                    text_elem = TextElement(
+                                        char=char,
+                                        bbox=char_bbox,
+                                        font_name=font_name,
+                                        font_size=font_size,
+                                        color=color,
+                                        page_index=page_index
+                                    )
+                                    text_elements.append(text_elem)
+        
+        except Exception as e:
+            print(f"Error extracting text elements: {e}")
+        
+        return text_elements
+    
+    def _extract_image_elements(self, page: fitz.Page, page_index: int) -> List[ImageElement]:
+        """Extract embedded images from the page."""
+        image_elements = []
+        
+        try:
+            image_list = page.get_images(full=True)
+            
+            for img_index, img in enumerate(image_list):
+                xref = img[0]
+                
+                # Get image bbox
+                rects = page.get_image_rects(xref)
+                
+                if not rects:
+                    continue
+                
+                # Get the actual image
+                base_image = self.doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                
+                # Convert to QPixmap
+                qimg = QImage.fromData(image_bytes)
+                pixmap = QPixmap.fromImage(qimg)
+                
+                for rect in rects:
+                    bbox = (rect.x0, rect.y0, rect.x1, rect.y1)
+                    
+                    img_elem = ImageElement(
+                        bbox=bbox,
+                        pixmap=pixmap,
+                        page_index=page_index,
+                        transform=list(rect)
+                    )
+                    image_elements.append(img_elem)
+        
+        except Exception as e:
+            print(f"Error extracting images: {e}")
+        
+        return image_elements
+    
+    def _extract_vector_elements(self, page: fitz.Page, page_index: int) -> List[VectorElement]:
+        """Extract vector graphics (paths, lines, shapes) from the page."""
+        vector_elements = []
+        
+        try:
+            # Get drawing commands
+            paths = page.get_drawings()
+            
+            for path_dict in paths:
+                qpath = QPainterPath()
+                
+                # Convert path items to QPainterPath
+                for item in path_dict.get("items", []):
+                    item_type = item[0]
+                    
+                    if item_type == "l":  # Line
+                        p1, p2 = item[1], item[2]
+                        qpath.moveTo(QPointF(p1.x, p1.y))
+                        qpath.lineTo(QPointF(p2.x, p2.y))
+                    
+                    elif item_type == "c":  # Curve
+                        p1, p2, p3, p4 = item[1], item[2], item[3], item[4]
+                        qpath.moveTo(QPointF(p1.x, p1.y))
+                        qpath.cubicTo(
+                            QPointF(p2.x, p2.y),
+                            QPointF(p3.x, p3.y),
+                            QPointF(p4.x, p4.y)
+                        )
+                    
+                    elif item_type == "re":  # Rectangle
+                        rect = item[1]
+                        qpath.addRect(QRectF(rect.x0, rect.y0, rect.width, rect.height))
+                    
+                    elif item_type == "qu":  # Quad
+                        quad = item[1]
+                        qpath.moveTo(QPointF(quad.ul.x, quad.ul.y))
+                        qpath.lineTo(QPointF(quad.ur.x, quad.ur.y))
+                        qpath.lineTo(QPointF(quad.lr.x, quad.lr.y))
+                        qpath.lineTo(QPointF(quad.ll.x, quad.ll.y))
+                        qpath.closeSubpath()
+                
+                # Get colors
+                stroke_color = None
+                fill_color = None
+                
+                if "color" in path_dict and path_dict["color"]:
+                    color_vals = path_dict["color"]
+                    stroke_color = (
+                        int(color_vals[0] * 255),
+                        int(color_vals[1] * 255),
+                        int(color_vals[2] * 255)
+                    )
+                
+                if "fill" in path_dict and path_dict["fill"]:
+                    fill_vals = path_dict["fill"]
+                    fill_color = (
+                        int(fill_vals[0] * 255),
+                        int(fill_vals[1] * 255),
+                        int(fill_vals[2] * 255)
+                    )
+                
+                line_width = path_dict.get("width", 1.0)
+                
+                vector_elem = VectorElement(
+                    path=qpath,
+                    stroke_color=stroke_color,
+                    fill_color=fill_color,
+                    line_width=line_width,
+                    page_index=page_index
+                )
+                vector_elements.append(vector_elem)
+        
+        except Exception as e:
+            print(f"Error extracting vector elements: {e}")
+        
+        return vector_elements
+    
+    def _extract_link_elements(self, page: fitz.Page, page_index: int) -> List[LinkElement]:
+        """Extract clickable links from the page."""
+        link_elements = []
+        
+        try:
+            links = page.get_links()
+            
+            for link in links:
+                bbox = link.get("from", (0, 0, 0, 0))
+                link_type = link.get("kind", 0)
+                
+                # Map link type
+                type_map = {
+                    1: "goto",    # Internal link
+                    2: "uri",     # External URI
+                    3: "gotor",   # Go to other document
+                    4: "launch",  # Launch application
+                    5: "named"    # Named action
+                }
+                
+                link_type_str = type_map.get(link_type, "unknown")
+                
+                # Get destination
+                destination = None
+                if link_type_str == "goto":
+                    destination = link.get("page", None)
+                elif link_type_str == "uri":
+                    destination = link.get("uri", "")
+                
+                link_elem = LinkElement(
+                    bbox=bbox,
+                    link_type=link_type_str,
+                    destination=destination,
+                    page_index=page_index
+                )
+                link_elements.append(link_elem)
+        
+        except Exception as e:
+            print(f"Error extracting links: {e}")
+        
+        return link_elements
+    
+    def get_text_at_position(self, page_index: int, x: float, y: float, 
+                            tolerance: float = 2.0) -> Optional[TextElement]:
+        """
+        Get the text character at a specific position on the page.
+        
+        Args:
+            page_index: Zero-based page index
+            x, y: Coordinates on the page
+            tolerance: Tolerance for hit detection
+            
+        Returns:
+            TextElement if found, None otherwise
+        """
+        elements = self.get_page_elements(page_index)
+        if not elements:
+            return None
+        
+        for text_elem in elements.texts:
+            bbox = text_elem.bbox
+            if (bbox[0] - tolerance <= x <= bbox[2] + tolerance and
+                bbox[1] - tolerance <= y <= bbox[3] + tolerance):
+                return text_elem
+        
+        return None
+    
+    def get_link_at_position(self, page_index: int, x: float, y: float) -> Optional[LinkElement]:
+        """Get the link at a specific position on the page."""
+        elements = self.get_page_elements(page_index)
+        if not elements:
+            return None
+        
+        for link_elem in elements.links:
+            bbox = link_elem.bbox
+            if bbox[0] <= x <= bbox[2] and bbox[1] <= y <= bbox[3]:
+                return link_elem
+        
+        return None
+    
+    def get_text_in_rect(self, page_index: int, rect: Tuple[float, float, float, float]) -> str:
+        """Get all text within a rectangular region."""
+        elements = self.get_page_elements(page_index)
+        if not elements:
+            return ""
+        
+        x0, y0, x1, y1 = rect
+        chars = []
+        
+        for text_elem in elements.texts:
+            bbox = text_elem.bbox
+            # Check if character bbox intersects with selection rect
+            if not (bbox[2] < x0 or bbox[0] > x1 or bbox[3] < y0 or bbox[1] > y1):
+                chars.append(text_elem)
+        
+        # Sort by position (top to bottom, left to right)
+        chars.sort(key=lambda t: (t.bbox[1], t.bbox[0]))
+        
+        # Reconstruct text with line breaks
+        result = []
+        last_y = None
+        
+        for char in chars:
+            if last_y is not None and abs(char.bbox[1] - last_y) > char.font_size * 0.5:
+                result.append('\n')
+            result.append(char.char)
+            last_y = char.bbox[1]
+        
+        return ''.join(result)
+    
     def _clear_search(self):
         """Resets the search state."""
         self.search_results = []
         self.current_search_index = -1
         self.current_search_term = ""
     
-    def _merge_rects(self, rects):
-        """Helper to find the bounding box of a list of fitz.Rect objects."""
-        if not rects:
-            return None
-
-        min_x0 = min(r.x0 for r in rects)
-        min_y0 = min(r.y0 for r in rects)
-        max_x1 = max(r.x1 for r in rects)
-        max_y1 = max(r.y1 for r in rects)
-        
-        return fitz.Rect(min_x0, min_y0, max_x1, max_y1)
-
-    def _merge_consecutive_rects(self, rects, y_tolerance=3.0, max_height=18.0):
+    def execute_search(self, search_term: str) -> int:
         """
-        Groups and merges rectangles based on strict vertical proximity (y_tolerance) 
-        and enforces a maximum height (max_height) to prevent merging results 
-        that span multiple lines of text.
-        """
-        if not rects:
-            return []
-
-        merged_results = []
-        
-        # 1. Sort by Y-coordinate (top-to-bottom) then by X-coordinate (left-to-right)
-        rects.sort(key=lambda r: (r.y0, r.x0))
-
-        current_group = [rects[0]]
-        current_merged_rect = self._merge_rects(current_group)
-
-        for i in range(1, len(rects)):
-            current_rect = rects[i]
-            
-            # 1. Vertical Proximity Check (strict for same line/split word)
-            vertical_gap = current_rect.y0 - current_merged_rect.y1
-            
-            # 2. Total Height Check: Don't merge if the resulting box would be too tall.
-            # Normal line height is usually around 12-15 units. We use 18.0 as a safe upper bound.
-            projected_y1 = max(current_rect.y1, current_merged_rect.y1)
-            projected_height = projected_y1 - current_merged_rect.y0
-            
-            # Merge Condition: The gap must be tiny AND the combined height must be reasonable.
-            is_contiguous = (vertical_gap <= y_tolerance) and (projected_height <= max_height)
-
-            if is_contiguous:
-                # Part of the same logical search match, add to the current group
-                current_group.append(current_rect)
-                current_merged_rect = self._merge_rects(current_group)
-            else:
-                # A vertical break occurred or the projected merged box is too tall.
-                merged_results.append(current_merged_rect)
-                
-                # Start a new group
-                current_group = [current_rect]
-                current_merged_rect = self._merge_rects(current_group)
-
-        # Merge and append the last group
-        if current_group:
-            merged_results.append(current_merged_rect)
-            
-        return merged_results
-    
-    def get_toc(self):
-        """Returns the parsed table of contents with detailed positioning info."""
-        return self.toc
-
-    def execute_search(self, search_term):
-        """
-        Performs a new search across the entire document for a given term,
-        using proximity-based merging to combine fragmented highlights.
+        Performs a search across the entire document.
+        Now searches through individual characters for better accuracy.
         """
         if not search_term:
             self._clear_search()
@@ -141,42 +406,42 @@ class PDFDocumentReader:
             self.current_search_term = search_term
             self.search_results = []
             
+            # Search using PyMuPDF's built-in search (still useful for getting regions)
             for i in range(self.total_pages):
                 page = self.doc.load_page(i)
-                
-                # Use quads=True as it is generally best practice for phrase search
                 quads_on_page = page.search_for(search_term, quads=True)
                 
-                # Convert quads to rects
-                rects_on_page = [q.rect for q in quads_on_page]
-                
-                # Use the new helper to merge consecutive rects on the same line
-                merged_rects = self._merge_consecutive_rects(rects_on_page)
-
-                for rect in merged_rects:
-                    self.search_results.append((i, rect))
+                for quad in quads_on_page:
+                    self.search_results.append((i, quad.rect))
             
             self.current_search_index = -1
+        
         return len(self.search_results)
-
-    def get_search_result_info(self):
-        """Returns the current search result page index and rectangle."""
-        if self.current_search_index == -1:
-            return None, None
-        return self.search_results[self.current_search_index]
-
+    
+    def get_toc(self):
+        """Returns the parsed table of contents."""
+        return self.toc
+    
     def next_search_result(self):
-        """Moves to the next search result and returns its info."""
-        if not self.search_results: return None, None
+        """Moves to the next search result."""
+        if not self.search_results:
+            return None, None
         self.current_search_index = (self.current_search_index + 1) % len(self.search_results)
         return self.search_results[self.current_search_index]
-
+    
     def prev_search_result(self):
-        """Moves to the previous search result and returns its info."""
-        if not self.search_results: return None, None
+        """Moves to the previous search result."""
+        if not self.search_results:
+            return None, None
         self.current_search_index = (self.current_search_index - 1 + len(self.search_results)) % len(self.search_results)
         return self.search_results[self.current_search_index]
     
+    def get_search_result_info(self):
+        """Returns current search result info."""
+        if self.current_search_index == -1:
+            return None, None
+        return self.search_results[self.current_search_index]
+    
     def get_all_search_results(self):
-        """Returns the full list of search results."""
+        """Returns all search results."""
         return self.search_results
