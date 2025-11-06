@@ -479,7 +479,7 @@ class PageWidget(QWidget):
             
             # Click on existing selection: deselect and start new selection
             is_on_selection = False
-            if self.selection_start_index is not None:
+            if self.selection_start_index is not None and self.selection_end_index is not None:
                  is_on_selection = (min(self.selection_start_index, self.selection_end_index) <= char_index <= 
                                     max(self.selection_start_index, self.selection_end_index))
             
