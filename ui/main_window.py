@@ -447,6 +447,23 @@ class MainWindow(QMainWindow):
         self.page_manager.jump_to_page(page_num, y_pos)
 
     def keyPressEvent(self, event):
+        # Handle undo/redo shortcuts
+        if event.modifiers() & Qt.ControlModifier:
+            if event.key() == Qt.Key_Z:
+                if event.modifiers() & Qt.ShiftModifier:
+                    # Ctrl+Shift+Z for redo
+                    self.redo_annotation()
+                else:
+                    # Ctrl+Z for undo
+                    self.undo_annotation()
+                event.accept()
+                return
+            elif event.key() == Qt.Key_Y:
+                # Ctrl+Y for redo (alternative)
+                self.redo_annotation()
+                event.accept()
+                return
+        
         self.input_handler.handle_key_press(event)
 
     def apply_style(self):
@@ -507,6 +524,7 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
         if file_path:
             self.load_pdf(file_path)
+            self._update_undo_redo_buttons()
 
     # Update the close_pdf method to handle unsaved changes:
 
@@ -554,6 +572,7 @@ class MainWindow(QMainWindow):
         self.page_height = None
         self.loaded_pages.clear()
         self.scroll_area.verticalScrollBar().setValue(0)
+        self._update_undo_redo_buttons()
 
     
     def toggle_toc_view(self):
@@ -859,3 +878,29 @@ class MainWindow(QMainWindow):
                 self.drawing_toolbar.is_in_drawing_mode(),
                 tool, color, stroke_width, filled
             )
+    def undo_annotation(self):
+        """Undo the last annotation action."""
+        if self.annotation_manager.undo():
+            self._refresh_all_visible_pages()
+            self._update_undo_redo_buttons()
+
+    def redo_annotation(self):
+        """Redo the last undone annotation action."""
+        if self.annotation_manager.redo():
+            self._refresh_all_visible_pages()
+            self._update_undo_redo_buttons()
+
+    def _update_undo_redo_buttons(self):
+        """Update the enabled state of undo/redo buttons."""
+        if hasattr(self, 'undo_button'):
+            self.undo_button.setEnabled(self.annotation_manager.can_undo())
+        if hasattr(self, 'redo_button'):
+            self.redo_button.setEnabled(self.annotation_manager.can_redo())
+
+    def _refresh_all_visible_pages(self):
+        """Refresh all currently visible pages."""
+        for idx in list(self.loaded_pages.keys()):
+            if idx in self.loaded_pages:
+                self.loaded_pages[idx].deleteLater()
+                del self.loaded_pages[idx]
+        self.update_visible_pages()
