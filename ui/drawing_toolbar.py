@@ -2,14 +2,14 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
-    QColorDialog, QToolButton, QSpinBox, QCheckBox, QWidget,
+    QColorDialog, QToolButton, QSpinBox, QWidget,
     QGraphicsDropShadowEffect, QSizePolicy
 )
 from helpers.annotations import AnnotationType
 
 
 class DrawingToolbar(QFrame):
-    """Compact drawing toolbar that appears on the right side."""
+    """Compact drawing toolbar with simplified freehand-only functionality."""
     
     drawing_mode_changed = pyqtSignal(bool)
     tool_changed = pyqtSignal(AnnotationType, tuple, float, bool)
@@ -17,10 +17,10 @@ class DrawingToolbar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("DrawingToolbar")
-        self.current_color = (255, 0, 0)
+        self.current_color = (255, 0, 0)  # Default red
         self.current_stroke_width = 2.0
         self.current_filled = False
-        self.current_tool = AnnotationType.FREEHAND
+        self.current_tool = AnnotationType.FREEHAND  # Fixed to freehand only
         self.is_drawing_mode = False
         
         self.setup_ui()
@@ -39,7 +39,7 @@ class DrawingToolbar(QFrame):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        header_label = QLabel("Draw", self)
+        header_label = QLabel("Freehand Draw", self)
         header_label.setStyleSheet("font-weight: bold; color: #8899AA;")
         header_layout.addWidget(header_label)
         
@@ -81,35 +81,7 @@ class DrawingToolbar(QFrame):
         """)
         main_layout.addWidget(self.mode_button)
         
-        # Tool selection
-        tools_label = QLabel("Tools", self)
-        tools_label.setStyleSheet("color: #8899AA; font-size: 11px; margin-top: 4px;")
-        main_layout.addWidget(tools_label)
-        
-        # Tool buttons - First row
-        tool_row1 = QHBoxLayout()
-        tool_row1.setSpacing(6)
-        
-        self.tool_buttons = []
-        
-        self.freehand_button = self._create_tool_button("✏️", "Freehand", AnnotationType.FREEHAND, True)
-        tool_row1.addWidget(self.freehand_button)
-        
-        self.line_button = self._create_tool_button("—", "Line", AnnotationType.LINE, False)
-        tool_row1.addWidget(self.line_button)
-        
-        self.arrow_button = self._create_tool_button("→", "Arrow", AnnotationType.ARROW, False)
-        tool_row1.addWidget(self.arrow_button)
-
-        self.rect_button = self._create_tool_button("□", "Rectangle", AnnotationType.RECTANGLE, False)
-        tool_row1.addWidget(self.rect_button)
-        
-        self.circle_button = self._create_tool_button("○", "Circle", AnnotationType.CIRCLE, False)
-        tool_row1.addWidget(self.circle_button)
-        
-        main_layout.addLayout(tool_row1)
-        
-        # Settings
+        # Settings label
         settings_label = QLabel("Settings", self)
         settings_label.setStyleSheet("color: #8899AA; font-size: 11px; margin-top: 4px;")
         main_layout.addWidget(settings_label)
@@ -134,12 +106,6 @@ class DrawingToolbar(QFrame):
         width_layout.addStretch()
         
         main_layout.addLayout(width_layout)
-        
-        # Fill option
-        self.filled_checkbox = QCheckBox("Fill shapes", self)
-        self.filled_checkbox.setEnabled(False)
-        self.filled_checkbox.stateChanged.connect(self._on_filled_changed)
-        main_layout.addWidget(self.filled_checkbox)
         
         # Color picker
         color_layout = QHBoxLayout()
@@ -170,32 +136,6 @@ class DrawingToolbar(QFrame):
         shadow.setOffset(0, 2)
         self.setGraphicsEffect(shadow)
     
-    def _create_tool_button(self, icon, tooltip, tool_type, checked):
-        """Create a tool selection button."""
-        btn = QToolButton(self)
-        btn.setText(icon)
-        btn.setToolTip(tooltip)
-        btn.setCheckable(True)
-        btn.setChecked(checked)
-        btn.setFixedSize(40, 40)
-        btn.clicked.connect(lambda: self._select_tool(tool_type, btn))
-        self.tool_buttons.append((btn, tool_type))
-        return btn
-    
-    def _select_tool(self, tool_type, button):
-        """Select a drawing tool."""
-        self.current_tool = tool_type
-        
-        # Update button states
-        for btn, _ in self.tool_buttons:
-            btn.setChecked(btn == button)
-        
-        # Enable/disable fill option for shapes
-        can_fill = tool_type in [AnnotationType.RECTANGLE, AnnotationType.CIRCLE, AnnotationType.FREEHAND]
-        self.filled_checkbox.setEnabled(can_fill)
-        
-        self._emit_tool_changed()
-    
     def _toggle_drawing_mode(self):
         """Toggle between drawing mode and normal mode."""
         self.is_drawing_mode = self.mode_button.isChecked()
@@ -210,11 +150,6 @@ class DrawingToolbar(QFrame):
     def _on_stroke_changed(self, value):
         """Update stroke width."""
         self.current_stroke_width = float(value)
-        self._emit_tool_changed()
-    
-    def _on_filled_changed(self, state):
-        """Update filled state."""
-        self.current_filled = (state == Qt.Checked)
         self._emit_tool_changed()
     
     def _choose_color(self):
@@ -244,10 +179,10 @@ class DrawingToolbar(QFrame):
     def _emit_tool_changed(self):
         """Emit signal with current tool settings."""
         self.tool_changed.emit(
-            self.current_tool, 
+            AnnotationType.FREEHAND,  # Always freehand now
             self.current_color, 
             self.current_stroke_width,
-            self.current_filled
+            False  # Never filled for simple freehand
         )
     
     def _close_toolbar(self):
@@ -259,7 +194,7 @@ class DrawingToolbar(QFrame):
     
     def get_current_settings(self):
         """Return current tool settings."""
-        return (self.current_tool, self.current_color, self.current_stroke_width, self.current_filled)
+        return (AnnotationType.FREEHAND, self.current_color, self.current_stroke_width, False)
     
     def is_in_drawing_mode(self):
         """Check if currently in drawing mode."""
