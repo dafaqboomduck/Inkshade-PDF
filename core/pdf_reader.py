@@ -123,7 +123,7 @@ class PDFDocumentReader:
             merged_results.append(current_merged_rect)
             
         return merged_results
-    
+
     def get_toc(self):
         """Returns the parsed table of contents with detailed positioning info."""
         if not self.doc:
@@ -138,6 +138,39 @@ class PDFDocumentReader:
             if len(entry) >= 3:
                 level, title, page_num = entry[:3]
                 
+                # Clean the title at the source
+                if title:
+                    # Handle surrogate escape sequences that PyMuPDF uses for undecodable bytes
+                    # These appear as \udcXX patterns
+                    import re
+                    
+                    # Remove all surrogate pair sequences (they appear as repeated \udcc0\udc80 patterns)
+                    # These are likely formatting characters (dots, leaders, etc.) in the original PDF
+                    cleaned_title = re.sub(r'[\udc00-\udfff]+', '', title)
+                    
+                    # Also remove any isolated high surrogates
+                    cleaned_title = re.sub(r'[\ud800-\udbff]+', '', cleaned_title)
+                    
+                    # Clean up any remaining special characters
+                    cleaned_title = cleaned_title.replace('\r', '')
+                    cleaned_title = cleaned_title.replace('\n', ' ')
+                    cleaned_title = cleaned_title.replace('\t', ' ')
+                    
+                    # Remove any other control characters
+                    cleaned_title = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned_title)
+                    
+                    # Clean up multiple spaces
+                    cleaned_title = re.sub(r'\s+', ' ', cleaned_title)
+                    cleaned_title = cleaned_title.strip()
+                    
+                    # If title is empty after cleaning, provide a default
+                    if not cleaned_title:
+                        cleaned_title = f"Section {page_num}"
+                    
+                    title = cleaned_title
+                else:
+                    title = f"Section {page_num}"
+                
                 # Extract y-coordinate if available in the details
                 y_pos = 0.0
                 if len(entry) == 4:
@@ -151,7 +184,7 @@ class PDFDocumentReader:
                         elif 'y' in details:
                             y_pos = details['y']
                 
-                # Store in consistent format
+                # Store in consistent format with cleaned title
                 processed_toc.append((level, title, page_num, y_pos))
         
         return processed_toc
