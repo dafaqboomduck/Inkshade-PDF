@@ -8,8 +8,7 @@ class TOCWidget(QTreeWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # self.setHeaderLabels(["Table of Contents"])
-        self.setHeaderHidden(True)  # Hide the header row
+        self.setHeaderHidden(True)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setFixedWidth(250)
         self.itemClicked.connect(self._item_clicked)
@@ -20,26 +19,22 @@ class TOCWidget(QTreeWidget):
         page_num = item.data(0, Qt.UserRole)
         y_pos = item.data(0, Qt.UserRole + 1)
         if page_num is not None:
+            # Pass y_pos if available, otherwise 0.0
             self.toc_link_clicked.emit(page_num, y_pos if y_pos is not None else 0.0)
 
     def load_toc(self, toc_data):
-        """Clears existing items and loads new TOC data from detailed format."""
+        """Clears existing items and loads new TOC data from processed format."""
         self.clear()
         root = self.invisibleRootItem()
         item_stack = {-1: root}
 
         for entry in toc_data:
-            # Handle both simple and detailed TOC formats
-            if len(entry) == 3:
-                # Simple format: [level, title, page_num]
+            # Handle processed format: (level, title, page_num, y_pos)
+            if len(entry) == 4:
+                level, title, page_num, y_pos = entry
+            elif len(entry) == 3:
                 level, title, page_num = entry
                 y_pos = 0.0
-            elif len(entry) == 4:
-                # Detailed format: [level, title, page_num, details_dict]
-                level, title, page_num, details = entry
-                # Extract the y-coordinate from the 'to' Point
-                to_point = details.get('to')
-                y_pos = to_point.y if to_point else 0.0
             else:
                 continue
 

@@ -154,28 +154,69 @@ class PDFViewer:
         """
         Scrolls the viewport to a specific position on a page.
         page_num: 1-based page number
-        y_offset: Y-coordinate on the page (in PDF's native coordinates, origin at bottom-left)
+        y_offset: Y-coordinate on the page (in PDF coordinates)
         """
         if self.page_height is None or self.page_height == 0:
             return
-        if 1 <= page_num <= self.pdf_reader_core.total_pages:
-            # Get the page to find its height in PDF coordinates
-            page = self.pdf_reader_core.doc.load_page(page_num - 1)
-            page_rect = page.rect
-            pdf_page_height = page_rect.height
             
-            # PDF coordinates have origin at bottom-left, but rendering has origin at top-left
-            # So we need to flip the y-coordinate
-            flipped_y = pdf_page_height - y_offset
-            
-            # Calculate the target scroll position
-            page_start_y = (page_num - 1) * (self.page_height + self.page_spacing)
-            
-            # Scale the flipped offset to match our current zoom level
-            scaled_offset = flipped_y * self.zoom
-            
-            target_y = page_start_y + scaled_offset
-            self.scroll_area.verticalScrollBar().setValue(int(target_y))
+        if not (1 <= page_num <= self.pdf_reader_core.total_pages):
+            return
+        
+        # Calculate the page top position in viewport
+        page_start_y = (page_num - 1) * (self.page_height + self.page_spacing)
+        
+        # If y_offset is provided and non-zero, try to use it
+        if y_offset > 0:
+            try:
+                # Get the page to find its dimensions
+                page = self.pdf_reader_core.doc.load_page(page_num - 1)
+                page_rect = page.rect
+                pdf_page_height = page_rect.height
+                
+                # Normalize the y_offset as a percentage of page height
+                # This handles different PDF coordinate systems better
+                if y_offset <= pdf_page_height:
+                    # y_offset is likely in PDF coordinates (from top or bottom)
+                    # Try both interpretations and use the one that makes more sense
+                    
+                    # Interpretation 1: y_offset from top (most common)
+                    offset_from_top = y_offset
+                    
+                    # Interpretation 2: y_offset from bottom (PDF standard)
+                    offset_from_bottom = pdf_page_height - y_offset
+                    
+                    # Use the smaller offset (assuming TOC points near top of sections)
+                    if offset_from_top <= pdf_page_height * 0.5:
+                        normalized_offset = offset_from_top / pdf_page_height
+                    else:
+                        normalized_offset = offset_from_bottom / pdf_page_height
+                else:
+                    # y_offset might be in different units, just go to page top
+                    normalized_offset = 0.0
+                
+                # Apply the normalized offset to our rendered page
+                pixel_offset = normalized_offset * self.page_height
+                
+                # Calculate target position (with some adjustment for viewport)
+                viewport_height = self.scroll_area.viewport().height()
+                target_y = page_start_y + pixel_offset - min(50, viewport_height * 0.1)  # Small offset from top
+                target_y = max(0, target_y)  # Don't scroll above document
+                
+            except Exception as e:
+                # If anything fails, just go to the page top
+                print(f"TOC navigation calculation failed: {e}")
+                target_y = page_start_y
+        else:
+            # No y_offset provided, just go to page top
+            target_y = page_start_y
+        
+        # Perform the scroll
+        self.scroll_area.verticalScrollBar().setValue(int(target_y))
+        
+        # Update visible pages after scrolling
+        if hasattr(self.main_window, 'update_visible_pages'):
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(50, self.main_window.update_visible_pages)
 
     def update_page_highlights(self):
         """Updates the search highlights on all currently loaded pages."""
