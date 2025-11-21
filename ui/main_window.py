@@ -87,21 +87,21 @@ class MainWindow(QMainWindow):
         
         btn.setToolTip(tooltip)
         btn.setFixedSize(36, 36)
-        btn.setStyleSheet("""
-            QToolButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 4px;
-                color: #B5B5C5;
-                padding: 0px;
-            }
-            QToolButton:hover {
-                background-color: #3e3e3e;
-            }
-            QToolButton:pressed {
-                background-color: #2e2e2e;
-            }
-        """)
+        # btn.setStyleSheet("""
+        #     QToolButton {
+        #         background-color: transparent;
+        #         border: none;
+        #         border-radius: 4px;
+        #         color: #B5B5C5;
+        #         padding: 0px;
+        #     }
+        #     QToolButton:hover {
+        #         background-color: #3e3e3e;
+        #     }
+        #     QToolButton:pressed {
+        #         background-color: #2e2e2e;
+        #     }
+        # """)
         return btn
     
     def closeEvent(self, event):
@@ -539,7 +539,7 @@ class MainWindow(QMainWindow):
         self.annotation_manager.clear_all()
         self.toc_widget.clear_toc()
         self.toc_widget.hide()
-        self.toc_button.setVisible(True)
+        self.toc_button.setVisible(False)
         self._clear_search()
         self._hide_search_bar()
         self._hide_annotation_toolbar()
