@@ -8,8 +8,7 @@ class TOCWidget(QTreeWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # self.setHeaderLabels(["Table of Contents"])
-        self.setHeaderHidden(True)  # Hide the header row
+        self.setHeaderHidden(True)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setFixedWidth(250)
         self.itemClicked.connect(self._item_clicked)
@@ -23,30 +22,34 @@ class TOCWidget(QTreeWidget):
             self.toc_link_clicked.emit(page_num, y_pos if y_pos is not None else 0.0)
 
     def load_toc(self, toc_data):
-        """Clears existing items and loads new TOC data from detailed format."""
+        """Clears existing items and loads new TOC data from processed format."""
         self.clear()
         root = self.invisibleRootItem()
         item_stack = {-1: root}
 
         for entry in toc_data:
-            # Handle both simple and detailed TOC formats
-            if len(entry) == 3:
-                # Simple format: [level, title, page_num]
+            # Handle processed format: (level, title, page_num, y_pos)
+            if len(entry) == 4:
+                level, title, page_num, y_pos = entry
+            elif len(entry) == 3:
                 level, title, page_num = entry
                 y_pos = 0.0
-            elif len(entry) == 4:
-                # Detailed format: [level, title, page_num, details_dict]
-                level, title, page_num, details = entry
-                # Extract the y-coordinate from the 'to' Point
-                to_point = details.get('to')
-                y_pos = to_point.y if to_point else 0.0
             else:
                 continue
+
+            # Title should already be cleaned at source
+            # but do a final check just in case
+            if not title or not title.strip():
+                title = f"Section {page_num}"
 
             parent = item_stack.get(level - 1, root)
             new_item = QTreeWidgetItem(parent, [title])
             new_item.setData(0, Qt.UserRole, int(page_num))
             new_item.setData(0, Qt.UserRole + 1, float(y_pos))
+            
+            # Set tooltip with page number
+            new_item.setToolTip(0, f"{title} - Page {page_num}")
+            
             item_stack[level] = new_item
 
             # Clean up deeper levels
