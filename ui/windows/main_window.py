@@ -11,18 +11,18 @@ import pyperclip
 import os
 import tempfile
 import shutil
-from core.pdf_reader import PDFDocumentReader
-from core.user_input import UserInputHandler
-from core.annotation_manager import AnnotationManager
-from core.pdf_exporter import PDFExporter
-from core.export_worker import ExportWorker
-from styles import apply_style
-from ui.pdf_view import PDFViewer
-from ui.toc_display import TOCWidget
-from ui.annotation_toolbar import AnnotationToolbar
-from ui.drawing_toolbar import DrawingToolbar
-from ui.search_bar import SearchBar
-from helpers.locate_resources import get_resource_path
+from core.document.pdf_reader import PDFDocumentReader
+from controllers.input_handler import UserInputHandler
+from core.annotations import AnnotationManager
+from core.document.pdf_exporter import PDFExporter
+from core.export.export_worker import ExportWorker
+from styles.theme_manager import apply_style
+from ui.widgets.pdf_viewer import PDFViewer
+from ui.widgets.toc_widget import TOCWidget
+from ui.toolbars.annotation_toolbar import AnnotationToolbar
+from ui.toolbars.drawing_toolbar import DrawingToolbar
+from ui.toolbars.search_bar import SearchBar
+from utils.resource_loader import get_resource_path
 
 class MainWindow(QMainWindow):
     def __init__(self, file_path=None):
@@ -804,7 +804,7 @@ class MainWindow(QMainWindow):
         quads = self._words_to_quads(selected_words)
                 
         if quads:
-            from helpers.annotations import Annotation
+            from core.annotations import Annotation
             annotation = Annotation(
                 page_index=self.current_page_index,
                 annotation_type=annotation_type,
