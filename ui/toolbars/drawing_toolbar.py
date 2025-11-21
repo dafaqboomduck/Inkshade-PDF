@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QColorDialog, QToolButton, QSpinBox, QWidget,
     QGraphicsDropShadowEffect, QSizePolicy
 )
-from helpers.annotations import AnnotationType
+from core.annotations import AnnotationType
 
 
 class DrawingToolbar(QFrame):

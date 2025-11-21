@@ -1,5 +1,5 @@
 from PyQt5.QtCore import Qt
-from ui.page_label import ClickablePageLabel
+from ui.widgets.page_label import ClickablePageLabel
 
 class PDFViewer:
     def __init__(self, main_window, page_container_widget, scroll_area_widget, pdf_reader_core, annotation_manager):
