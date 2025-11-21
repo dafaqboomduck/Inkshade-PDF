@@ -19,7 +19,6 @@ class TOCWidget(QTreeWidget):
         page_num = item.data(0, Qt.UserRole)
         y_pos = item.data(0, Qt.UserRole + 1)
         if page_num is not None:
-            # Pass y_pos if available, otherwise 0.0
             self.toc_link_clicked.emit(page_num, y_pos if y_pos is not None else 0.0)
 
     def load_toc(self, toc_data):
@@ -38,10 +37,19 @@ class TOCWidget(QTreeWidget):
             else:
                 continue
 
+            # Title should already be cleaned at source
+            # but do a final check just in case
+            if not title or not title.strip():
+                title = f"Section {page_num}"
+
             parent = item_stack.get(level - 1, root)
             new_item = QTreeWidgetItem(parent, [title])
             new_item.setData(0, Qt.UserRole, int(page_num))
             new_item.setData(0, Qt.UserRole + 1, float(y_pos))
+            
+            # Set tooltip with page number
+            new_item.setToolTip(0, f"{title} - Page {page_num}")
+            
             item_stack[level] = new_item
 
             # Clean up deeper levels
