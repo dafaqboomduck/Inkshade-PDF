@@ -126,7 +126,35 @@ class PDFDocumentReader:
     
     def get_toc(self):
         """Returns the parsed table of contents with detailed positioning info."""
-        return self.toc
+        if not self.doc:
+            return []
+        
+        # Get the detailed TOC with full information
+        raw_toc = self.doc.get_toc(simple=False)
+        
+        # Process TOC to ensure consistent format
+        processed_toc = []
+        for entry in raw_toc:
+            if len(entry) >= 3:
+                level, title, page_num = entry[:3]
+                
+                # Extract y-coordinate if available in the details
+                y_pos = 0.0
+                if len(entry) == 4:
+                    details = entry[3]
+                    if isinstance(details, dict):
+                        # Check for 'to' point in details
+                        to_point = details.get('to')
+                        if to_point and hasattr(to_point, 'y'):
+                            y_pos = to_point.y
+                        # Also check for 'y' directly in details
+                        elif 'y' in details:
+                            y_pos = details['y']
+                
+                # Store in consistent format
+                processed_toc.append((level, title, page_num, y_pos))
+        
+        return processed_toc
 
     def execute_search(self, search_term):
         """
