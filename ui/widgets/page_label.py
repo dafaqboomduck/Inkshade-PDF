@@ -1,8 +1,8 @@
 from PyQt5.QtCore import Qt, QRect, QRectF, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QImage, QCursor
 from PyQt5.QtWidgets import QLabel, QMenu, QMessageBox
-from core.user_input import UserInputHandler
-from core.annotation_manager import AnnotationType
+from controllers.input_handler import UserInputHandler
+from core.annotations import AnnotationType
 
 # Custom widget to display a page image and handle text selection
 class ClickablePageLabel(QLabel):
@@ -235,7 +235,7 @@ class ClickablePageLabel(QLabel):
             main_window = self.get_main_window()
             if main_window:
                 # Create a new annotation with updated color
-                from helpers.annotations import Annotation
+                from core.annotations import Annotation
                 new_annotation = Annotation(
                     page_index=annotation.page_index,
                     annotation_type=annotation.annotation_type,
@@ -274,7 +274,7 @@ class ClickablePageLabel(QLabel):
         
         # Emit signal to parent to create annotation
         # We'll handle this through the main window
-        from helpers.annotations import Annotation
+        from core.annotations import Annotation
         
         main_window = self.get_main_window()
         page_index = self.get_page_index()
