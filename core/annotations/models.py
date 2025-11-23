@@ -1,8 +1,13 @@
+"""
+Annotation data models and enums.
+"""
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 from enum import Enum
 
+
 class AnnotationType(Enum):
+    """Types of annotations supported by the application."""
     HIGHLIGHT = "highlight"
     UNDERLINE = "underline"
     FREEHAND = "freehand"
@@ -11,29 +16,32 @@ class AnnotationType(Enum):
     ARROW = "arrow"
     LINE = "line"
 
+
 class ActionType(Enum):
+    """Types of actions for undo/redo functionality."""
     ADD = "add"
     REMOVE = "remove"
-    MODIFY = "modify"   
+    MODIFY = "modify"
+
 
 @dataclass
 class Annotation:
     """Represents a single annotation on a PDF page."""
-    page_index: int # 0-based page index
+    page_index: int  # 0-based page index
     annotation_type: AnnotationType
-    color: Tuple[int, int, int] # RGB tuple (0-255)
+    color: Tuple[int, int, int]  # RGB tuple (0-255)
     
     # For text annotations (highlight, underline)
     quads: Optional[List[List[float]]] = None
-
+    
     # For drawing annotations (freehand, shapes)
     points: Optional[List[Tuple[float, float]]] = None  # List of (x, y) coordinates
-
+    
     # Shape-specific properties
     stroke_width: float = 2.0
     filled: bool = False
-
-    def to_dict(self):
+    
+    def to_dict(self) -> dict:
         """Convert annotation to dictionary for JSON serialization."""
         data = {
             'page_index': self.page_index,
@@ -52,7 +60,7 @@ class Annotation:
         return data
     
     @staticmethod
-    def from_dict(data):
+    def from_dict(data: dict) -> 'Annotation':
         """Create annotation from dictionary."""
         quads = data.get('quads')
         points_data = data.get('points')
@@ -67,6 +75,7 @@ class Annotation:
             stroke_width=data.get('stroke_width', 2.0),
             filled=data.get('filled', False)
         )
+
 
 @dataclass
 class AnnotationAction:

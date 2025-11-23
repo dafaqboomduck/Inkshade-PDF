@@ -1,5 +1,5 @@
 import fitz  # PyMuPDF
-from helpers.annotations import AnnotationType, Annotation
+from core.annotations import AnnotationType, Annotation
 from typing import List
 from PyQt5.QtCore import QObject, pyqtSignal
 
