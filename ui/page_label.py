@@ -1,15 +1,11 @@
-from PyQt5.QtCore import Qt, QRect, QRectF, pyqtSignal
-from PyQt5.QtGui import QPainter, QColor, QBrush, QImage, QCursor
-from PyQt5.QtWidgets import QLabel, QMenu, QMessageBox
-from controllers.input_handler import UserInputHandler
-from core.annotations import AnnotationType
+from PyQt5.QtCore import Qt, QRect, QRectF
+from PyQt5.QtGui import QPainter, QColor, QBrush, QImage
+from PyQt5.QtWidgets import QLabel
+from core.user_input import UserInputHandler
+from core.annotation_manager import AnnotationType
 
 # Custom widget to display a page image and handle text selection
 class ClickablePageLabel(QLabel):
-    # Signals for annotation operations
-    annotation_selected = pyqtSignal(object)  # Emits selected annotation
-    annotation_delete_requested = pyqtSignal(object)  # Emits annotation to delete
-    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.text_data = None
@@ -29,8 +25,6 @@ class ClickablePageLabel(QLabel):
         
         # Store annotations for this page
         self.annotations = []
-        self.selected_annotation = None
-        self.hovered_annotation = None
 
         self.input_handler = UserInputHandler(parent)
         
@@ -42,13 +36,6 @@ class ClickablePageLabel(QLabel):
         self.current_drawing_filled = False
         self.current_drawing_points = []  # Points for current shape being drawn
         self.is_currently_drawing = False  # Whether user is actively drawing right now
-        
-        # Context menu for annotations
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.show_context_menu)
-        
-        # Enable keyboard focus
-        self.setFocusPolicy(Qt.StrongFocus)
 
     def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode, search_highlights=None, current_highlight_index=-1, annotations=None):
         self.setPixmap(pixmap)
@@ -63,8 +50,6 @@ class ClickablePageLabel(QLabel):
         self.current_search_highlight_index = current_highlight_index
 
         self.annotations = annotations if annotations else []
-        self.selected_annotation = None
-        self.hovered_annotation = None
 
         self._build_line_word_map()
         self.update()
@@ -84,40 +69,7 @@ class ClickablePageLabel(QLabel):
                     self.line_word_map[key] = []
                 self.line_word_map[key].append(word_info)
 
-    def show_context_menu(self, position):
-        """Show context menu for annotation operations."""
-        # Check if there's an annotation at this position
-        main_window = self.get_main_window()
-        if not main_window:
-            return
-            
-        # Find which page this label represents
-        page_index = self.get_page_index()
-        if page_index is None:
-            return
-        
-        # Check for annotation at click position
-        annotation = main_window.annotation_manager.get_annotation_at_point(
-            page_index, position.x(), position.y(), self.zoom_level
-        )
-        
-        if annotation:
-            menu = QMenu(self)
-            
-            # Add delete action
-            delete_action = menu.addAction("Delete Annotation")
-            delete_action.triggered.connect(lambda: self.delete_annotation(annotation))
-            
-            # Add edit color action for highlights
-            if annotation.annotation_type == AnnotationType.HIGHLIGHT:
-                edit_color_action = menu.addAction("Change Color")
-                edit_color_action.triggered.connect(lambda: self.edit_annotation_color(annotation))
-            
-            menu.exec_(self.mapToGlobal(position))
-
     def mousePressEvent(self, event):
-        # Ensure this widget has focus for keyboard shortcuts
-        self.setFocus()
         
         if self.is_drawing_mode and event.button() == Qt.LeftButton:
             # Start drawing
@@ -125,53 +77,11 @@ class ClickablePageLabel(QLabel):
             self.current_drawing_points = [(event.pos().x() / self.zoom_level, 
                                             event.pos().y() / self.zoom_level)]
             self.update()
-        elif event.button() == Qt.LeftButton:
-            # Check for annotation selection first
-            main_window = self.get_main_window()
-            if main_window:
-                page_index = self.get_page_index()
-                if page_index is not None:
-                    annotation = main_window.annotation_manager.get_annotation_at_point(
-                        page_index, event.pos().x(), event.pos().y(), self.zoom_level
-                    )
-                    
-                    if annotation and event.modifiers() & Qt.ControlModifier:
-                        # Ctrl+Click on annotation to select it
-                        self.selected_annotation = annotation
-                        main_window.annotation_manager.selected_annotation = annotation
-                        self.annotation_selected.emit(annotation)
-                        self.update()
-                        return
-                    elif not annotation:
-                        # Click on empty space - deselect annotation
-                        if self.selected_annotation:
-                            self.selected_annotation = None
-                            if main_window:
-                                main_window.annotation_manager.selected_annotation = None
-                            self.update()
-            
+        else:
             # Normal text selection
             self.input_handler.handle_page_label_mouse_press(self, event)
 
     def mouseMoveEvent(self, event):
-        # Check for annotation hover
-        if not self.is_drawing_mode and not self.is_currently_drawing:
-            main_window = self.get_main_window()
-            if main_window:
-                page_index = self.get_page_index()
-                if page_index is not None:
-                    annotation = main_window.annotation_manager.get_annotation_at_point(
-                        page_index, event.pos().x(), event.pos().y(), self.zoom_level
-                    )
-                    
-                    if annotation != self.hovered_annotation:
-                        self.hovered_annotation = annotation
-                        if annotation:
-                            self.setCursor(Qt.PointingHandCursor)
-                        else:
-                            self.setCursor(Qt.ArrowCursor if not self.is_drawing_mode else Qt.CrossCursor)
-                        self.update()
-        
         if self.is_drawing_mode and self.is_currently_drawing:
             # Add point to current drawing
             self.current_drawing_points.append((event.pos().x() / self.zoom_level, 
@@ -188,6 +98,7 @@ class ClickablePageLabel(QLabel):
             self.current_drawing_points.append((event.pos().x() / self.zoom_level, 
                                             event.pos().y() / self.zoom_level))
             
+            
             # Create annotation from the drawn shape
             self._finalize_drawing()
             
@@ -197,75 +108,6 @@ class ClickablePageLabel(QLabel):
             # Normal text selection
             self.input_handler.handle_page_label_mouse_release(self, event)
 
-    def keyPressEvent(self, event):
-        """Handle keyboard shortcuts for annotations."""
-        if event.key() == Qt.Key_Delete or event.key() == Qt.Key_Backspace:
-            if self.selected_annotation:
-                self.delete_annotation(self.selected_annotation)
-                event.accept()
-                return
-        
-        super().keyPressEvent(event)
-
-    def delete_annotation(self, annotation):
-        """Delete the specified annotation."""
-        main_window = self.get_main_window()
-        if main_window:
-            reply = QMessageBox.question(
-                self,
-                "Delete Annotation",
-                "Are you sure you want to delete this annotation?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            
-            if reply == QMessageBox.Yes:
-                if main_window.annotation_manager.remove_annotation(annotation):
-                    self.selected_annotation = None
-                    main_window._refresh_current_page()
-
-    def edit_annotation_color(self, annotation):
-        """Edit the color of an annotation."""
-        from PyQt5.QtWidgets import QColorDialog
-        
-        initial_color = QColor(annotation.color[0], annotation.color[1], annotation.color[2])
-        color = QColorDialog.getColor(initial_color, self, "Choose New Color")
-        
-        if color.isValid():
-            main_window = self.get_main_window()
-            if main_window:
-                # Create a new annotation with updated color
-                from core.annotations import Annotation
-                new_annotation = Annotation(
-                    page_index=annotation.page_index,
-                    annotation_type=annotation.annotation_type,
-                    color=(color.red(), color.green(), color.blue()),
-                    quads=annotation.quads,
-                    points=annotation.points,
-                    stroke_width=annotation.stroke_width,
-                    filled=annotation.filled
-                )
-                
-                # Update the annotation
-                if main_window.annotation_manager.update_annotation(annotation, new_annotation):
-                    main_window._refresh_current_page()
-
-    def get_main_window(self):
-        """Get the main window through parent chain."""
-        main_window = self.parent()
-        while main_window and not hasattr(main_window, 'annotation_manager'):
-            main_window = main_window.parent()
-        return main_window
-
-    def get_page_index(self):
-        """Find which page this label represents."""
-        main_window = self.get_main_window()
-        if main_window:
-            for idx, label in main_window.loaded_pages.items():
-                if label == self:
-                    return idx
-        return None
-
     def _finalize_drawing(self):
         """Create an annotation from the current drawing."""
         
@@ -274,24 +116,35 @@ class ClickablePageLabel(QLabel):
         
         # Emit signal to parent to create annotation
         # We'll handle this through the main window
-        from core.annotations import Annotation
+        from helpers.annotations import Annotation
         
-        main_window = self.get_main_window()
-        page_index = self.get_page_index()
+        # Get the main window through parent chain
+        main_window = self.parent()
+        while main_window and not hasattr(main_window, 'annotation_manager'):
+            main_window = main_window.parent()
+
         
-        if main_window and page_index is not None:
-            annotation = Annotation(
-                page_index=page_index,
-                annotation_type=self.current_drawing_tool,
-                color=self.current_drawing_color,
-                points=self.current_drawing_points.copy(),
-                stroke_width=self.current_drawing_stroke_width,
-                filled=self.current_drawing_filled
-            )
-            main_window.annotation_manager.add_annotation(annotation)
-                        
-            # Refresh this page to show the new annotation
-            main_window._refresh_current_page()
+        if main_window:
+            # Find which page this label represents
+            page_index = None
+            for idx, label in main_window.loaded_pages.items():
+                if label == self:
+                    page_index = idx
+                    break
+            
+            if page_index is not None:
+                annotation = Annotation(
+                    page_index=page_index,
+                    annotation_type=self.current_drawing_tool,
+                    color=self.current_drawing_color,
+                    points=self.current_drawing_points.copy(),
+                    stroke_width=self.current_drawing_stroke_width,
+                    filled=self.current_drawing_filled
+                )
+                main_window.annotation_manager.add_annotation(annotation)
+                            
+                # Refresh this page to show the new annotation
+                main_window._refresh_current_page()
                 
     def paintEvent(self, event):
         # 1. First, call the superclass's paintEvent to draw the QPixmap (the page image)
@@ -333,21 +186,7 @@ class ClickablePageLabel(QLabel):
         # --- Draw Annotations onto the buffer ---
         
         for annotation in self.annotations:
-            # Check if this annotation is selected or hovered
-            is_selected = (annotation == self.selected_annotation or 
-                          annotation == (self.get_main_window().annotation_manager.selected_annotation 
-                                       if self.get_main_window() else None))
-            is_hovered = annotation == self.hovered_annotation
-            
-            # Adjust opacity and add selection outline
-            if is_selected:
-                opacity = 150
-            elif is_hovered:
-                opacity = 120
-            else:
-                opacity = 100
-                
-            color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], opacity)
+            color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], 100)
             
             if annotation.annotation_type == AnnotationType.HIGHLIGHT:
                 buf_painter.setBrush(QBrush(color))
@@ -359,17 +198,6 @@ class ClickablePageLabel(QLabel):
                         (quad[5] - quad[1]) * self.zoom_level
                     )
                     buf_painter.drawRect(rect)
-                    
-                    # Draw selection outline
-                    if is_selected:
-                        from PyQt5.QtGui import QPen
-                        outline_pen = QPen(QColor(0, 120, 255), 2)
-                        buf_painter.setPen(outline_pen)
-                        buf_painter.setBrush(Qt.NoBrush)
-                        buf_painter.drawRect(rect)
-                        buf_painter.setPen(Qt.NoPen)
-                        buf_painter.setBrush(QBrush(color))
-                        
                 buf_painter.setBrush(Qt.NoBrush)
             
             elif annotation.annotation_type == AnnotationType.UNDERLINE:
@@ -397,19 +225,6 @@ class ClickablePageLabel(QLabel):
                 import math
                 
                 solid_color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], 255)
-                
-                # Add selection glow for freehand
-                if is_selected and annotation.annotation_type == AnnotationType.FREEHAND:
-                    glow_pen = QPen(QColor(0, 120, 255, 100), annotation.stroke_width + 4)
-                    buf_painter.setPen(glow_pen)
-                    
-                    path = QPainterPath()
-                    first_point = annotation.points[0]
-                    path.moveTo(first_point[0] * self.zoom_level, first_point[1] * self.zoom_level)
-                    for point in annotation.points[1:]:
-                        path.lineTo(point[0] * self.zoom_level, point[1] * self.zoom_level)
-                    buf_painter.drawPath(path)
-                
                 pen = QPen(solid_color, annotation.stroke_width)
                 buf_painter.setPen(pen)
                 
@@ -424,6 +239,70 @@ class ClickablePageLabel(QLabel):
                         path.lineTo(point[0] * self.zoom_level, point[1] * self.zoom_level)
                     buf_painter.drawPath(path)
                     
+                    if annotation.filled:
+                        buf_painter.setBrush(Qt.NoBrush)
+                
+                elif annotation.annotation_type == AnnotationType.LINE:
+                    start = annotation.points[0]
+                    end = annotation.points[-1]
+                    buf_painter.drawLine(
+                        int(start[0] * self.zoom_level), int(start[1] * self.zoom_level),
+                        int(end[0] * self.zoom_level), int(end[1] * self.zoom_level)
+                    )
+                
+                elif annotation.annotation_type == AnnotationType.ARROW:
+                    start = annotation.points[0]
+                    end = annotation.points[-1]
+                    
+                    buf_painter.drawLine(
+                        int(start[0] * self.zoom_level), int(start[1] * self.zoom_level),
+                        int(end[0] * self.zoom_level), int(end[1] * self.zoom_level)
+                    )
+                    
+                    arrow_size = 10 * (annotation.stroke_width / 2.0)
+                    dx = end[0] - start[0]
+                    dy = end[1] - start[1]
+                    angle = math.atan2(dy, dx)
+                    
+                    arrow_p1 = QPointF(
+                        end[0] * self.zoom_level - arrow_size * math.cos(angle - math.pi / 6),
+                        end[1] * self.zoom_level - arrow_size * math.sin(angle - math.pi / 6)
+                    )
+                    arrow_p2 = QPointF(
+                        end[0] * self.zoom_level - arrow_size * math.cos(angle + math.pi / 6),
+                        end[1] * self.zoom_level - arrow_size * math.sin(angle + math.pi / 6)
+                    )
+                    
+                    buf_painter.drawLine(QPointF(end[0] * self.zoom_level, end[1] * self.zoom_level), arrow_p1)
+                    buf_painter.drawLine(QPointF(end[0] * self.zoom_level, end[1] * self.zoom_level), arrow_p2)
+                
+                elif annotation.annotation_type == AnnotationType.RECTANGLE:
+                    start = annotation.points[0]
+                    end = annotation.points[-1]
+                    
+                    x = min(start[0], end[0]) * self.zoom_level
+                    y = min(start[1], end[1]) * self.zoom_level
+                    width = abs(end[0] - start[0]) * self.zoom_level
+                    height = abs(end[1] - start[1]) * self.zoom_level
+                    
+                    if annotation.filled:
+                        buf_painter.setBrush(QBrush(solid_color))
+                    buf_painter.drawRect(QRectF(x, y, width, height))
+                    if annotation.filled:
+                        buf_painter.setBrush(Qt.NoBrush)
+                
+                elif annotation.annotation_type == AnnotationType.CIRCLE:
+                    start = annotation.points[0]
+                    end = annotation.points[-1]
+                    
+                    x = min(start[0], end[0]) * self.zoom_level
+                    y = min(start[1], end[1]) * self.zoom_level
+                    width = abs(end[0] - start[0]) * self.zoom_level
+                    height = abs(end[1] - start[1]) * self.zoom_level
+                    
+                    if annotation.filled:
+                        buf_painter.setBrush(QBrush(solid_color))
+                    buf_painter.drawEllipse(QRectF(x, y, width, height))
                     if annotation.filled:
                         buf_painter.setBrush(Qt.NoBrush)
                 
@@ -452,6 +331,70 @@ class ClickablePageLabel(QLabel):
                 for point in self.current_drawing_points[1:]:
                     path.lineTo(point[0] * self.zoom_level, point[1] * self.zoom_level)
                 buf_painter.drawPath(path)
+                if self.current_drawing_filled:
+                    buf_painter.setBrush(Qt.NoBrush)
+            
+            elif self.current_drawing_tool == AnnotationType.LINE:
+                start = self.current_drawing_points[0]
+                end = self.current_drawing_points[-1]
+                buf_painter.drawLine(
+                    int(start[0] * self.zoom_level), int(start[1] * self.zoom_level),
+                    int(end[0] * self.zoom_level), int(end[1] * self.zoom_level)
+                )
+            
+            elif self.current_drawing_tool == AnnotationType.ARROW:
+                start = self.current_drawing_points[0]
+                end = self.current_drawing_points[-1]
+                
+                buf_painter.drawLine(
+                    int(start[0] * self.zoom_level), int(start[1] * self.zoom_level),
+                    int(end[0] * self.zoom_level), int(end[1] * self.zoom_level)
+                )
+                
+                arrow_size = 10 * (self.current_drawing_stroke_width / 2.0)
+                dx = end[0] - start[0]
+                dy = end[1] - start[1]
+                angle = math.atan2(dy, dx)
+                
+                arrow_p1 = QPointF(
+                    end[0] * self.zoom_level - arrow_size * math.cos(angle - math.pi / 6),
+                    end[1] * self.zoom_level - arrow_size * math.sin(angle - math.pi / 6)
+                )
+                arrow_p2 = QPointF(
+                    end[0] * self.zoom_level - arrow_size * math.cos(angle + math.pi / 6),
+                    end[1] * self.zoom_level - arrow_size * math.sin(angle + math.pi / 6)
+                )
+                
+                buf_painter.drawLine(QPointF(end[0] * self.zoom_level, end[1] * self.zoom_level), arrow_p1)
+                buf_painter.drawLine(QPointF(end[0] * self.zoom_level, end[1] * self.zoom_level), arrow_p2)
+            
+            elif self.current_drawing_tool == AnnotationType.RECTANGLE:
+                start = self.current_drawing_points[0]
+                end = self.current_drawing_points[-1]
+                
+                x = min(start[0], end[0]) * self.zoom_level
+                y = min(start[1], end[1]) * self.zoom_level
+                width = abs(end[0] - start[0]) * self.zoom_level
+                height = abs(end[1] - start[1]) * self.zoom_level
+                
+                if self.current_drawing_filled:
+                    buf_painter.setBrush(QBrush(preview_color))
+                buf_painter.drawRect(QRectF(x, y, width, height))
+                if self.current_drawing_filled:
+                    buf_painter.setBrush(Qt.NoBrush)
+            
+            elif self.current_drawing_tool == AnnotationType.CIRCLE:
+                start = self.current_drawing_points[0]
+                end = self.current_drawing_points[-1]
+                
+                x = min(start[0], end[0]) * self.zoom_level
+                y = min(start[1], end[1]) * self.zoom_level
+                width = abs(end[0] - start[0]) * self.zoom_level
+                height = abs(end[1] - start[1]) * self.zoom_level
+                
+                if self.current_drawing_filled:
+                    buf_painter.setBrush(QBrush(preview_color))
+                buf_painter.drawEllipse(QRectF(x, y, width, height))
                 if self.current_drawing_filled:
                     buf_painter.setBrush(Qt.NoBrush)
             
@@ -528,3 +471,5 @@ class ClickablePageLabel(QLabel):
             self.setCursor(Qt.CrossCursor)
         else:
             self.setCursor(Qt.ArrowCursor)
+
+    

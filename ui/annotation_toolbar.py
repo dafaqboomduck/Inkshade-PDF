@@ -4,19 +4,19 @@ from PyQt5.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
     QColorDialog, QToolButton, QWidget, QGraphicsDropShadowEffect, QSizePolicy
 )
-from core.annotations import AnnotationType
+from helpers.annotations import AnnotationType
 
 
 class AnnotationToolbar(QFrame):
-    """Compact annotation toolbar with simplified highlight-only functionality."""
+    """Compact annotation toolbar that appears on the right side."""
     
     annotation_requested = pyqtSignal(AnnotationType, tuple)
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("AnnotationToolbar")
-        self.current_color = (255, 255, 0)  # Default yellow for highlight
-        self.current_type = AnnotationType.HIGHLIGHT  # Fixed to highlight only
+        self.current_color = (255, 255, 0)
+        self.current_type = AnnotationType.HIGHLIGHT
         
         self.setup_ui()
         self.hide()
@@ -34,7 +34,7 @@ class AnnotationToolbar(QFrame):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        header_label = QLabel("Highlight Text", self)
+        header_label = QLabel("Annotate", self)
         header_label.setStyleSheet("font-weight: bold; color: #8899AA;")
         header_layout.addWidget(header_label)
         
@@ -49,11 +49,30 @@ class AnnotationToolbar(QFrame):
         
         main_layout.addLayout(header_layout)
         
-        # Info label
-        info_label = QLabel("Select text first, then apply highlight", self)
-        info_label.setStyleSheet("color: #8899AA; font-size: 11px;")
-        info_label.setWordWrap(True)
-        main_layout.addWidget(info_label)
+        # Type selection
+        type_layout = QHBoxLayout()
+        type_layout.setSpacing(6)
+        
+        self.highlight_button = QToolButton(self)
+        self.highlight_button.setText("🖍")
+        self.highlight_button.setToolTip("Highlight")
+        self.highlight_button.setCheckable(True)
+        self.highlight_button.setChecked(True)
+        self.highlight_button.setFixedSize(40, 40)
+        self.highlight_button.clicked.connect(lambda: self._set_type(AnnotationType.HIGHLIGHT))
+        type_layout.addWidget(self.highlight_button)
+        
+        self.underline_button = QToolButton(self)
+        self.underline_button.setText("U̲")
+        self.underline_button.setToolTip("Underline")
+        self.underline_button.setCheckable(True)
+        self.underline_button.setFixedSize(40, 40)
+        self.underline_button.clicked.connect(lambda: self._set_type(AnnotationType.UNDERLINE))
+        type_layout.addWidget(self.underline_button)
+        
+        type_layout.addStretch()
+        
+        main_layout.addLayout(type_layout)
         
         # Color picker
         color_layout = QHBoxLayout()
@@ -76,7 +95,7 @@ class AnnotationToolbar(QFrame):
         
         # Apply button
         self.apply_button = QToolButton(self)
-        self.apply_button.setText("Apply Highlight")
+        self.apply_button.setText("Apply Annotation")
         self.apply_button.setFixedHeight(36)
         self.apply_button.clicked.connect(self._on_apply)
         self.apply_button.setStyleSheet("""
@@ -107,10 +126,16 @@ class AnnotationToolbar(QFrame):
         shadow.setOffset(0, 2)
         self.setGraphicsEffect(shadow)
     
+    def _set_type(self, annotation_type):
+        """Update current annotation type and button states."""
+        self.current_type = annotation_type
+        self.highlight_button.setChecked(annotation_type == AnnotationType.HIGHLIGHT)
+        self.underline_button.setChecked(annotation_type == AnnotationType.UNDERLINE)
+    
     def _choose_color(self):
         """Open color picker dialog."""
         initial_color = QColor(self.current_color[0], self.current_color[1], self.current_color[2])
-        color = QColorDialog.getColor(initial_color, self, "Choose Highlight Color")
+        color = QColorDialog.getColor(initial_color, self, "Choose Annotation Color")
         
         if color.isValid():
             self.current_color = (color.red(), color.green(), color.blue())
@@ -131,10 +156,10 @@ class AnnotationToolbar(QFrame):
         """)
     
     def _on_apply(self):
-        """Emit signal to create highlight annotation with current color."""
-        self.annotation_requested.emit(AnnotationType.HIGHLIGHT, self.current_color)
+        """Emit signal to create annotation with current settings."""
+        self.annotation_requested.emit(self.current_type, self.current_color)
         self.hide()
     
     def get_current_settings(self):
         """Return current annotation type and color."""
-        return AnnotationType.HIGHLIGHT, self.current_color
+        return self.current_type, self.current_color

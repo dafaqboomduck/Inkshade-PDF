@@ -11,11 +11,6 @@ class AnnotationType(Enum):
     ARROW = "arrow"
     LINE = "line"
 
-class ActionType(Enum):
-    ADD = "add"
-    REMOVE = "remove"
-    MODIFY = "modify"   
-
 @dataclass
 class Annotation:
     """Represents a single annotation on a PDF page."""
@@ -67,11 +62,3 @@ class Annotation:
             stroke_width=data.get('stroke_width', 2.0),
             filled=data.get('filled', False)
         )
-
-@dataclass
-class AnnotationAction:
-    """Represents an action that can be undone/redone."""
-    action_type: ActionType
-    annotation: Annotation
-    old_annotation: Optional[Annotation] = None  # For modify actions
-    page_index: int = -1
