@@ -1,5 +1,6 @@
 """
 Main annotation manager that coordinates all annotation operations.
+Fixed to properly track unsaved changes.
 """
 from typing import List, Optional
 from .models import Annotation, AnnotationType
@@ -21,6 +22,9 @@ class AnnotationManager:
         
         # For tracking selected annotation
         self.selected_annotation: Optional[Annotation] = None
+        
+        # Track the initial state to detect real changes
+        self.initial_annotations: List[Annotation] = []
     
     def set_pdf_path(self, pdf_path: str) -> None:
         """
@@ -42,7 +46,7 @@ class AnnotationManager:
         self.undo_redo_stack.push_state(self.annotations)
         
         self.annotations.append(annotation)
-        self.has_unsaved_changes = True
+        self._check_for_changes()
         self._auto_save()
     
     def remove_annotation(self, annotation: Annotation) -> bool:
@@ -60,8 +64,8 @@ class AnnotationManager:
             self.undo_redo_stack.push_state(self.annotations)
             
             self.annotations.remove(annotation)
-            self.has_unsaved_changes = True
             self.selected_annotation = None
+            self._check_for_changes()
             self._auto_save()
             return True
         return False
@@ -84,11 +88,37 @@ class AnnotationManager:
             self.undo_redo_stack.push_state(self.annotations)
             
             self.annotations[index] = new_annotation
-            self.has_unsaved_changes = True
+            self._check_for_changes()
             self._auto_save()
             return True
         except ValueError:
             return False
+    
+    def _check_for_changes(self) -> None:
+        """
+        Check if current annotations differ from initial state.
+        Updates has_unsaved_changes flag accordingly.
+        """
+        # Compare current annotations with initial state
+        if len(self.annotations) != len(self.initial_annotations):
+            self.has_unsaved_changes = True
+            return
+        
+        # Check if all annotations match (order doesn't matter)
+        # Create a simplified comparison that ignores object identity
+        current_set = set(
+            (ann.page_index, ann.annotation_type.value, ann.color, 
+             str(ann.quads), str(ann.points), ann.stroke_width, ann.filled)
+            for ann in self.annotations
+        )
+        
+        initial_set = set(
+            (ann.page_index, ann.annotation_type.value, ann.color,
+             str(ann.quads), str(ann.points), ann.stroke_width, ann.filled)
+            for ann in self.initial_annotations
+        )
+        
+        self.has_unsaved_changes = (current_set != initial_set)
     
     def get_annotations_for_page(self, page_index: int) -> List[Annotation]:
         """
@@ -217,8 +247,8 @@ class AnnotationManager:
         previous_state = self.undo_redo_stack.undo(self.annotations)
         if previous_state is not None:
             self.annotations = previous_state
-            self.has_unsaved_changes = True
             self.selected_annotation = None
+            self._check_for_changes()
             self._auto_save()
             return True
         return False
@@ -236,8 +266,8 @@ class AnnotationManager:
         next_state = self.undo_redo_stack.redo(self.annotations)
         if next_state is not None:
             self.annotations = next_state
-            self.has_unsaved_changes = True
             self.selected_annotation = None
+            self._check_for_changes()
             self._auto_save()
             return True
         return False
@@ -253,6 +283,7 @@ class AnnotationManager:
     def clear_all(self) -> None:
         """Clear all annotations and reset state."""
         self.annotations.clear()
+        self.initial_annotations.clear()
         self.has_unsaved_changes = False
         self.pdf_path = None
         self.selected_annotation = None
@@ -297,6 +328,9 @@ class AnnotationManager:
         annotations, success = self.persistence.load_from_json(self.pdf_path, file_path)
         if success:
             self.annotations = annotations
+            # Store initial state for change detection
+            import copy
+            self.initial_annotations = [copy.deepcopy(ann) for ann in annotations]
             self.has_unsaved_changes = False
             self.undo_redo_stack.clear()
         return success
@@ -323,11 +357,14 @@ class AnnotationManager:
             success = self.persistence.delete_json_file(self.pdf_path)
             if success:
                 self.has_unsaved_changes = False
+                self.initial_annotations.clear()
             return success
         return False
     
     def mark_saved(self) -> None:
-        """Mark all changes as saved."""
+        """Mark all changes as saved and update initial state."""
+        import copy
+        self.initial_annotations = [copy.deepcopy(ann) for ann in self.annotations]
         self.has_unsaved_changes = False
     
     def get_annotation_count(self) -> int:
