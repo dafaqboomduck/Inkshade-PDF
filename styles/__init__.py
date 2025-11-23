@@ -1,6 +1,6 @@
 """
 Application styling and themes.
 """
-from .theme_manager import apply_style
+from .theme_manager import ThemeColors, ThemeManager
 
-__all__ = ['apply_style']
+__all__ = ['ThemeColors', 'ThemeManager']

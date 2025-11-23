@@ -1,4 +1,7 @@
 """
 Search functionality for PDF documents.
 """
-# Search functionality will be extracted from pdf_reader.py
+from .search_engine import PDFSearchEngine, SearchResult
+from .search_highlight import SearchHighlight
+
+__all__ = ['PDFSearchEngine', 'SearchResult', 'SearchHighlight']

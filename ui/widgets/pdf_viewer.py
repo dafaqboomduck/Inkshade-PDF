@@ -1,8 +1,14 @@
+"""
+PDF viewer widget - Fixed to use search engine.
+"""
 from PyQt5.QtCore import Qt
 from ui.widgets.page_label import ClickablePageLabel
+from core.search import SearchHighlight
+
 
 class PDFViewer:
-    def __init__(self, main_window, page_container_widget, scroll_area_widget, pdf_reader_core, annotation_manager):
+    def __init__(self, main_window, page_container_widget, scroll_area_widget, 
+                 pdf_reader_core, annotation_manager):
         self.main_window = main_window
         self.page_container = page_container_widget
         self.scroll_area = scroll_area_widget
@@ -80,14 +86,16 @@ class PDFViewer:
         """Renders a single page and creates its display label."""
         pix, text_data, word_data = self.pdf_reader_core.render_page(idx, self.zoom, self.dark_mode)
         if pix:
-            search_results = self.pdf_reader_core.get_all_search_results()
-            rects_on_page = [r for p, r in search_results if p == idx]
+            # Get search highlights from the search engine
+            rects_on_page = []
             current_idx_on_page = -1
-            if (self.pdf_reader_core.current_search_index != -1 
-                and search_results[self.pdf_reader_core.current_search_index][0] == idx):
-                current_rect = search_results[self.pdf_reader_core.current_search_index][1]
-                if current_rect in rects_on_page:
-                    current_idx_on_page = rects_on_page.index(current_rect)
+            
+            # Check if main window has search engine
+            if hasattr(self.main_window, 'search_engine'):
+                search_engine = self.main_window.search_engine
+                rects_on_page, current_idx_on_page = SearchHighlight.get_highlights_for_page(
+                    search_engine, idx
+                )
 
             # Get annotations for this page
             annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
@@ -99,6 +107,8 @@ class PDFViewer:
                 current_highlight_index=current_idx_on_page,
                 annotations=annotations_on_page
             )
+            
+            # Set drawing mode if active
             if hasattr(self.main_window, 'drawing_toolbar') and self.main_window.drawing_toolbar.is_in_drawing_mode():
                 tool_settings = self.main_window.drawing_toolbar.get_current_settings()
                 tool, color, stroke_width, filled = tool_settings
@@ -142,7 +152,8 @@ class PDFViewer:
 
     def get_scroll_info(self):
         """Returns the current page index and offset within that page for zoom adjustments."""
-        if self.page_height is None or self.page_height == 0: return 0, 0
+        if self.page_height is None or self.page_height == 0: 
+            return 0, 0
         vsb = self.scroll_area.verticalScrollBar()
         scroll_val = vsb.value()
         H = self.page_height + self.page_spacing
@@ -174,40 +185,33 @@ class PDFViewer:
                 pdf_page_height = page_rect.height
                 
                 # Normalize the y_offset as a percentage of page height
-                # This handles different PDF coordinate systems better
                 if y_offset <= pdf_page_height:
-                    # y_offset is likely in PDF coordinates (from top or bottom)
-                    # Try both interpretations and use the one that makes more sense
-                    
-                    # Interpretation 1: y_offset from top (most common)
+                    # y_offset from top
                     offset_from_top = y_offset
                     
-                    # Interpretation 2: y_offset from bottom (PDF standard)
+                    # y_offset from bottom
                     offset_from_bottom = pdf_page_height - y_offset
                     
-                    # Use the smaller offset (assuming TOC points near top of sections)
+                    # Use the smaller offset
                     if offset_from_top <= pdf_page_height * 0.5:
                         normalized_offset = offset_from_top / pdf_page_height
                     else:
                         normalized_offset = offset_from_bottom / pdf_page_height
                 else:
-                    # y_offset might be in different units, just go to page top
                     normalized_offset = 0.0
                 
                 # Apply the normalized offset to our rendered page
                 pixel_offset = normalized_offset * self.page_height
                 
-                # Calculate target position (with some adjustment for viewport)
+                # Calculate target position
                 viewport_height = self.scroll_area.viewport().height()
-                target_y = page_start_y + pixel_offset - min(50, viewport_height * 0.1)  # Small offset from top
-                target_y = max(0, target_y)  # Don't scroll above document
+                target_y = page_start_y + pixel_offset - min(50, viewport_height * 0.1)
+                target_y = max(0, target_y)
                 
             except Exception as e:
-                # If anything fails, just go to the page top
                 print(f"TOC navigation calculation failed: {e}")
                 target_y = page_start_y
         else:
-            # No y_offset provided, just go to page top
             target_y = page_start_y
         
         # Perform the scroll
@@ -221,19 +225,21 @@ class PDFViewer:
     def update_page_highlights(self):
         """Updates the search highlights on all currently loaded pages."""
         for idx, label in self.loaded_pages.items():
-            search_results = self.pdf_reader_core.get_all_search_results()
-            rects_on_page = [r for p, r in search_results if p == idx]
+            rects_on_page = []
             current_idx_on_page = -1
-            if self.pdf_reader_core.current_search_index != -1:
-                current_page, current_rect = search_results[self.pdf_reader_core.current_search_index]
-                if current_page == idx and current_rect in rects_on_page:
-                    current_idx_on_page = rects_on_page.index(current_rect)
+            
+            # Get search highlights from search engine
+            if hasattr(self.main_window, 'search_engine'):
+                search_engine = self.main_window.search_engine
+                rects_on_page, current_idx_on_page = SearchHighlight.get_highlights_for_page(
+                    search_engine, idx
+                )
             
             label.set_search_highlights(rects_on_page, current_idx_on_page)
 
     def jump_to_search_result(self, page_idx, rect):
         """Scrolls the view to center on a specific search result rectangle."""
-        if page_idx is None or self.page_height is None:
+        if page_idx is None or self.page_height is None or rect is None:
             return
 
         scroll_offset = self.scroll_area.height() / 2 - (rect.height * self.zoom) / 2

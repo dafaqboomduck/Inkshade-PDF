@@ -1,262 +1,347 @@
+"""
+Theme management and styling for the application.
+"""
 from PyQt5.QtWidgets import QWidget
+from typing import Dict, Any
+from .models import ThemeColors
 
-def apply_style(widget: QWidget, dark_mode: bool):
-    """
-    Applies a modern style sheet to the main window and its widgets,
-    retaining a classic dark and light mode color scheme.
-    """
-    if dark_mode:
-        style_sheet = """
-            /* --- GENERAL STYLES (DARK MODE) --- */
-            QMainWindow, QWidget, QLineEdit, QLabel, QFrame {
-                background-color: #2e2e2e;
-                color: #f0f0f0;
+class ThemeManager:
+    """Manages application themes and styling."""
+    
+    # Define color schemes
+    DARK_THEME = ThemeColors(
+        # Backgrounds
+        bg_primary="#2e2e2e",
+        bg_secondary="#3e3e3e",
+        bg_tertiary="#4e4e4e",
+        
+        # Text
+        text_primary="#f0f0f0",
+        text_secondary="#B5B5C5",
+        text_muted="#8899AA",
+        
+        # Accent
+        accent_primary="#4a9eff",
+        accent_hover="#3a8eef",
+        accent_active="#2a7edf",
+        
+        # Borders
+        border_primary="#555555",
+        border_secondary="#3e3e3e",
+        
+        # Special
+        selection="rgba(255, 255, 0, 100)",
+        error="#ff6b6b",
+        warning="#ffd43b",
+        success="#51cf66"
+    )
+    
+    LIGHT_THEME = ThemeColors(
+        # Backgrounds
+        bg_primary="#f0f0f0",
+        bg_secondary="#ffffff",
+        bg_tertiary="#e0e0e0",
+        
+        # Text
+        text_primary="#2e2e2e",
+        text_secondary="#7A899C",
+        text_muted="#8899AA",
+        
+        # Accent
+        accent_primary="#4a9eff",
+        accent_hover="#3a8eef",
+        accent_active="#2a7edf",
+        
+        # Borders
+        border_primary="#cccccc",
+        border_secondary="#e0e0e0",
+        
+        # Special
+        selection="rgba(0, 89, 195, 100)",
+        error="#ff6b6b",
+        warning="#ffd43b",
+        success="#51cf66"
+    )
+    
+    @classmethod
+    def apply_theme(cls, widget: QWidget, dark_mode: bool) -> None:
+        """
+        Apply theme to a widget and its children.
+        
+        Args:
+            widget: Widget to style
+            dark_mode: Whether to use dark theme
+        """
+        theme = cls.DARK_THEME if dark_mode else cls.LIGHT_THEME
+        style_sheet = cls._generate_stylesheet(theme)
+        widget.setStyleSheet(style_sheet)
+    
+    @classmethod
+    def _generate_stylesheet(cls, theme: ThemeColors) -> str:
+        """
+        Generate a complete stylesheet from theme colors.
+        
+        Args:
+            theme: Theme colors to use
+            
+        Returns:
+            Complete CSS stylesheet string
+        """
+        return f"""
+            /* --- GENERAL STYLES --- */
+            QMainWindow, QWidget, QLineEdit, QLabel, QFrame {{
+                background-color: {theme.bg_primary};
+                color: {theme.text_primary};
                 border: none;
-            }
-
+            }}
+            
             /* --- BUTTONS --- */
-            QPushButton {
-                background-color: #4e4e4e;
-                color: #f0f0f0;
+            QPushButton {{
+                background-color: {theme.bg_tertiary};
+                color: {theme.text_primary};
                 border: none;
                 border-radius: 6px;
                 padding: 8px 16px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #5a5a5a;
-            }
-            QPushButton:pressed {
-                background-color: #3b3b3b;
-            }
-
+            }}
+            QPushButton:hover {{
+                background-color: {theme.bg_secondary};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.bg_primary};
+            }}
+            QPushButton:disabled {{
+                background-color: {theme.bg_secondary};
+                color: {theme.text_muted};
+            }}
+            
             /* --- TOOL BUTTONS --- */
-            QToolButton {
+            QToolButton {{
                 background-color: transparent;
-                color: #B5B5C5;
+                color: {theme.text_secondary};
                 border: none;
                 border-radius: 4px;
                 padding: 4px;
-            }
-            QToolButton:hover {
-                background-color: #3e3e3e;
-            }
-            QToolButton:pressed {
-                background-color: #2e2e2e;
-            }
-            QToolButton:checked {
-                background-color: #4a9eff;
+            }}
+            QToolButton:hover {{
+                background-color: {theme.bg_secondary};
+            }}
+            QToolButton:pressed {{
+                background-color: {theme.bg_primary};
+            }}
+            QToolButton:checked {{
+                background-color: {theme.accent_primary};
                 color: white;
-            }
-            QToolButton:checked:hover {
-                background-color: #3a8eef;
-            }
-
-            /* --- INPUTS AND LABELS --- */
-            QLineEdit {
-                background-color: #3e3e3e;
-                border: 1px solid #555555;
+            }}
+            QToolButton:checked:hover {{
+                background-color: {theme.accent_hover};
+            }}
+            
+            /* --- INPUTS --- */
+            QLineEdit {{
+                background-color: {theme.bg_secondary};
+                border: 1px solid {theme.border_primary};
                 border-radius: 6px;
                 padding: 6px 10px;
-                color: #f0f0f0;
-            }
-            QLineEdit:focus {
-                border: 1px solid #4a9eff;
-            }
+                color: {theme.text_primary};
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {theme.accent_primary};
+            }}
+            QLineEdit:disabled {{
+                background-color: {theme.bg_primary};
+                color: {theme.text_muted};
+            }}
             
-            QLineEdit[objectName="page_input"], QLineEdit[objectName="zoom_input"] {
+            QLineEdit[objectName="page_input"], 
+            QLineEdit[objectName="zoom_input"] {{
                 min-width: 60px;
                 max-width: 60px;
                 text-align: center;
-            }
+            }}
             
-            QLabel {
+            /* --- LABELS --- */
+            QLabel {{
                 background-color: transparent;
-            }
-
+            }}
+            QLabel[objectName="statusLabel"] {{
+                color: {theme.text_muted};
+            }}
+            
             /* --- SPINBOX --- */
-            QSpinBox {
-                background-color: #3e3e3e;
-                border: 1px solid #555555;
+            QSpinBox {{
+                background-color: {theme.bg_secondary};
+                border: 1px solid {theme.border_primary};
                 border-radius: 4px;
                 padding: 4px 8px;
-                color: #f0f0f0;
-            }
-            QSpinBox:focus {
-                border: 1px solid #4a9eff;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
-                background-color: #4e4e4e;
+                color: {theme.text_primary};
+            }}
+            QSpinBox:focus {{
+                border: 1px solid {theme.accent_primary};
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
+                background-color: {theme.bg_tertiary};
                 border: none;
                 border-radius: 2px;
-            }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-                background-color: #5a5a5a;
-            }
-
+            }}
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+                background-color: {theme.bg_secondary};
+            }}
+            
             /* --- CHECKBOX --- */
-            QCheckBox {
-                color: #f0f0f0;
+            QCheckBox {{
+                color: {theme.text_primary};
                 spacing: 6px;
-            }
-            QCheckBox::indicator {
+            }}
+            QCheckBox::indicator {{
                 width: 18px;
                 height: 18px;
-                border: 2px solid #555555;
+                border: 2px solid {theme.border_primary};
                 border-radius: 3px;
-                background-color: #3e3e3e;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #4a9eff;
-                border-color: #4a9eff;
-            }
-            QCheckBox::indicator:hover {
-                border-color: #777777;
-            }
-
-            /* --- FRAMES & SEPARATORS --- */
-            #TopFrame, #SearchFrame, #AnnotationToolbar, #DrawingToolbar {
-                background-color: #2e2e2e;
-                border-bottom: 1px solid #3e3e3e;
-            }
-
-            QScrollArea {
-                background-color: #2e2e2e;
+                background-color: {theme.bg_secondary};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {theme.accent_primary};
+                border-color: {theme.accent_primary};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {theme.text_secondary};
+            }}
+            
+            /* --- SCROLL AREA --- */
+            QScrollArea {{
+                background-color: {theme.bg_primary};
                 border: none;
-            }
-
-            /* --- FLOATING TOOLBARS (DARK MODE) --- */
-            #SearchBar, #AnnotationToolbar, #DrawingToolbar {
-                background-color: #2e2e2e;
-                border: 1px solid #3e3e3e;
-                border-radius: 8px;
-            }
-        """
-    else: # Light Mode
-        style_sheet = """
-            /* --- GENERAL STYLES (LIGHT MODE) --- */
-            QMainWindow, QWidget, QLineEdit, QLabel, QFrame {
-                background-color: #f0f0f0;
-                color: #2e2e2e;
+            }}
+            
+            QScrollBar:vertical {{
+                background-color: {theme.bg_primary};
+                width: 12px;
                 border: none;
-            }
-
-            /* --- BUTTONS --- */
-            QPushButton {
-                background-color: #e0e0e0;
-                color: #2e2e2e;
-                border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: {theme.bg_tertiary};
                 border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #d0d0d0;
-            }
-            QPushButton:pressed {
-                background-color: #c0c0c0;
-            }
-
-            /* --- TOOL BUTTONS --- */
-            QToolButton {
-                background-color: transparent;
-                color: #7A899C;
-                border: none;
+                min-height: 20px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background-color: {theme.bg_secondary};
+            }}
+            QScrollBar::add-line:vertical, 
+            QScrollBar::sub-line:vertical {{
+                background: none;
+                height: 0px;
+            }}
+            
+            /* --- FRAMES --- */
+            #TopFrame {{
+                background-color: {theme.bg_primary};
+                border-bottom: 1px solid {theme.border_secondary};
+            }}
+            
+            /* --- FLOATING TOOLBARS --- */
+            #SearchBar, #AnnotationToolbar, #DrawingToolbar {{
+                background-color: {theme.bg_primary};
+                border: 1px solid {theme.border_secondary};
+                border-radius: 8px;
+            }}
+            
+            /* --- TREE WIDGET (TOC) --- */
+            QTreeWidget {{
+                background-color: {theme.bg_primary};
+                color: {theme.text_primary};
+                border: 1px solid {theme.border_secondary};
+                border-left: none;
+                outline: none;
+            }}
+            QTreeWidget::item {{
+                padding: 4px;
+            }}
+            QTreeWidget::item:hover {{
+                background-color: {theme.bg_secondary};
+            }}
+            QTreeWidget::item:selected {{
+                background-color: {theme.accent_primary};
+                color: white;
+            }}
+            
+            /* --- MENU --- */
+            QMenu {{
+                background-color: {theme.bg_secondary};
+                border: 1px solid {theme.border_primary};
                 border-radius: 4px;
                 padding: 4px;
-            }
-            QToolButton:hover {
-                background-color: #e6e6e6;
-            }
-            QToolButton:pressed {
-                background-color: #d6d6d6;
-            }
-            QToolButton:checked {
-                background-color: #4a9eff;
-                color: white;
-            }
-            QToolButton:checked:hover {
-                background-color: #3a8eef;
-            }
-
-            /* --- INPUTS AND LABELS --- */
-            QLineEdit {
-                background-color: #ffffff;
-                border: 1px solid #cccccc;
-                border-radius: 6px;
-                padding: 6px 10px;
-                color: #2e2e2e;
-            }
-            QLineEdit:focus {
-                border: 1px solid #4a9eff;
-            }
-            
-            QLineEdit[objectName="page_input"], QLineEdit[objectName="zoom_input"] {
-                min-width: 60px;
-                max-width: 60px;
-                text-align: center;
-            }
-            
-            QLabel {
-                background-color: transparent;
-            }
-
-            /* --- SPINBOX --- */
-            QSpinBox {
-                background-color: #ffffff;
-                border: 1px solid #cccccc;
+            }}
+            QMenu::item {{
+                padding: 6px 20px;
                 border-radius: 4px;
-                padding: 4px 8px;
-                color: #2e2e2e;
-            }
-            QSpinBox:focus {
-                border: 1px solid #4a9eff;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
-                background-color: #e0e0e0;
-                border: none;
-                border-radius: 2px;
-            }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-                background-color: #d0d0d0;
-            }
-
-            /* --- CHECKBOX --- */
-            QCheckBox {
-                color: #2e2e2e;
-                spacing: 6px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border: 2px solid #cccccc;
+            }}
+            QMenu::item:selected {{
+                background-color: {theme.accent_primary};
+                color: white;
+            }}
+            
+            /* --- MESSAGE BOX --- */
+            QMessageBox {{
+                background-color: {theme.bg_primary};
+            }}
+            QMessageBox QLabel {{
+                color: {theme.text_primary};
+            }}
+            
+            /* --- PROGRESS DIALOG --- */
+            QProgressDialog {{
+                background-color: {theme.bg_primary};
+            }}
+            QProgressBar {{
+                background-color: {theme.bg_secondary};
+                border: 1px solid {theme.border_primary};
+                border-radius: 4px;
+                text-align: center;
+            }}
+            QProgressBar::chunk {{
+                background-color: {theme.accent_primary};
                 border-radius: 3px;
-                background-color: #ffffff;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #4a9eff;
-                border-color: #4a9eff;
-            }
-            QCheckBox::indicator:hover {
-                border-color: #999999;
-            }
-
-            /* --- FRAMES & SEPARATORS --- */
-            #TopFrame, #SearchFrame, #AnnotationToolbar, #DrawingToolbar {
-                background-color: #f0f0f0;
-                border-bottom: 1px solid #e0e0e0;
-            }
-
-            QScrollArea {
-                background-color: #f0f0f0;
-                border: none;
-            }
-
-            /* --- FLOATING TOOLBARS (LIGHT MODE) --- */
-            #SearchBar, #AnnotationToolbar, #DrawingToolbar {
-                background-color: #ffffff;
-                border: 1px solid #d0d0d0;
-                border-radius: 8px;
-            }
+            }}
         """
-    widget.setStyleSheet(style_sheet)
+    
+    @classmethod
+    def get_theme_colors(cls, dark_mode: bool) -> ThemeColors:
+        """
+        Get theme colors for the current mode.
+        
+        Args:
+            dark_mode: Whether to get dark theme colors
+            
+        Returns:
+            ThemeColors object
+        """
+        return cls.DARK_THEME if dark_mode else cls.LIGHT_THEME
+    
+    @classmethod
+    def get_selection_color(cls, dark_mode: bool) -> tuple:
+        """
+        Get selection highlight color for the current mode.
+        
+        Args:
+            dark_mode: Whether using dark mode
+            
+        Returns:
+            RGBA tuple for selection color
+        """
+        if dark_mode:
+            return (255, 255, 0, 100)  # Yellow for dark mode
+        else:
+            return (0, 89, 195, 100)  # Blue for light mode
+
+
+# Convenience function for backwards compatibility
+def apply_style(widget: QWidget, dark_mode: bool) -> None:
+    """
+    Apply theme to a widget (backwards compatibility).
+    
+    Args:
+        widget: Widget to style
+        dark_mode: Whether to use dark theme
+    """
+    ThemeManager.apply_theme(widget, dark_mode)
