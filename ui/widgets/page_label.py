@@ -208,21 +208,13 @@ class ClickablePageLabel(QLabel):
         super().keyPressEvent(event)
 
     def delete_annotation(self, annotation):
-        """Delete the specified annotation."""
+        """Delete the specified annotation using controller with one-time warning."""
         main_window = self.get_main_window()
-        if main_window:
-            reply = QMessageBox.question(
-                self,
-                "Delete Annotation",
-                "Are you sure you want to delete this annotation?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            
-            if reply == QMessageBox.Yes:
-                if main_window.annotation_manager.remove_annotation(annotation):
-                    self.selected_annotation = None
-                    main_window._refresh_current_page()
+        if main_window and hasattr(main_window, 'annotation_controller'):
+            # Use the annotation controller which handles the warning
+            if main_window.annotation_controller.delete_annotation(annotation):
+                self.selected_annotation = None
+                main_window._refresh_current_page()
 
     def edit_annotation_color(self, annotation):
         """Edit the color of an annotation."""
