@@ -1,41 +1,73 @@
-import fitz # PyMuPDF
+"""
+PDF document reading and rendering functionality.
+"""
+import fitz  # PyMuPDF
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import QMessageBox
+from typing import Optional, Tuple, List, Dict, Any
+import re
+
 
 class PDFDocumentReader:
+    """Handles PDF document loading, rendering, and basic operations."""
+    
     def __init__(self):
-        self.doc = None
-        self.total_pages = 0
-        self.search_results = []
-        self.current_search_index = -1
-        self.current_search_term = ""
-        self.toc = []
-
-    def load_pdf(self, file_path):
-        """Loads a PDF document and returns the number of pages."""
+        self.doc: Optional[fitz.Document] = None
+        self.total_pages: int = 0
+        self.toc: List[Tuple[int, str, int, float]] = []
+        self.current_file_path: Optional[str] = None
+    
+    def load_pdf(self, file_path: str) -> Tuple[bool, int]:
+        """
+        Load a PDF document.
+        
+        Args:
+            file_path: Path to the PDF file
+            
+        Returns:
+            Tuple of (success flag, number of pages)
+        """
         try:
+            # Close existing document if any
+            if self.doc:
+                self.close_document()
+            
             self.doc = fitz.open(file_path)
             self.total_pages = self.doc.page_count
-            self._clear_search()
-
-            # Get detailed TOC with positioning info
-            self.toc = self.doc.get_toc(False)
-
+            self.current_file_path = file_path
+            
+            # Get table of contents with positioning info
+            self.toc = self._process_toc()
+            
             return True, self.total_pages
+            
         except Exception as e:
             QMessageBox.critical(None, "Error", f"Error loading PDF: {e}")
             return False, 0
-        
-    def close_document(self):
-        """Closes the current PDF document and clears all state."""
+    
+    def close_document(self) -> None:
+        """Close the current PDF document and clear all state."""
         if self.doc:
             self.doc.close()
             self.doc = None
+        
         self.total_pages = 0
-        self._clear_search()
-
-    def render_page(self, page_index, zoom_level, dark_mode):
-        """Renders a single page of the PDF to a pixmap and extracts its text and word data."""
+        self.toc = []
+        self.current_file_path = None
+    
+    def render_page(self, page_index: int, zoom_level: float, 
+                   dark_mode: bool) -> Tuple[Optional[QPixmap], Optional[Dict], Optional[List]]:
+        """
+        Render a single page of the PDF to a pixmap.
+        
+        Args:
+            page_index: 0-based index of the page to render
+            zoom_level: Zoom factor for rendering
+            dark_mode: Whether to invert colors for dark mode
+            
+        Returns:
+            Tuple of (pixmap, text_data, word_data)
+        """
         if not self.doc or page_index >= self.total_pages:
             return None, None, None
         
@@ -43,135 +75,93 @@ class PDFDocumentReader:
             page = self.doc.load_page(page_index)
             mat = fitz.Matrix(zoom_level, zoom_level)
             
+            # Render page to pixmap
             pix = page.get_pixmap(matrix=mat)
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
+            img = QImage(pix.samples, pix.width, pix.height, 
+                        pix.stride, QImage.Format_RGB888)
+            
+            # Apply dark mode if needed
             if dark_mode:
                 img.invertPixels()
+            
             pixmap = QPixmap.fromImage(img)
             
+            # Extract text data
             text_data = page.get_text("dict", sort=True)
             word_data = page.get_text("words", sort=True)
             
             return pixmap, text_data, word_data
+            
         except Exception as e:
-            QMessageBox.critical(None, "Error", f"Error rendering page {page_index+1}: {e}")
+            QMessageBox.critical(None, "Error", 
+                               f"Error rendering page {page_index + 1}: {e}")
             return None, None, None
-
-    def _clear_search(self):
-        """Resets the search state."""
-        self.search_results = []
-        self.current_search_index = -1
-        self.current_search_term = ""
     
-    def _merge_rects(self, rects):
-        """Helper to find the bounding box of a list of fitz.Rect objects."""
-        if not rects:
+    def get_page(self, page_index: int) -> Optional[fitz.Page]:
+        """
+        Get a page object for direct operations.
+        
+        Args:
+            page_index: 0-based index of the page
+            
+        Returns:
+            PyMuPDF page object, or None if invalid
+        """
+        if not self.doc or page_index >= self.total_pages:
             return None
-
-        min_x0 = min(r.x0 for r in rects)
-        min_y0 = min(r.y0 for r in rects)
-        max_x1 = max(r.x1 for r in rects)
-        max_y1 = max(r.y1 for r in rects)
         
-        return fitz.Rect(min_x0, min_y0, max_x1, max_y1)
-
-    def _merge_consecutive_rects(self, rects, y_tolerance=3.0, max_height=18.0):
+        try:
+            return self.doc.load_page(page_index)
+        except Exception:
+            return None
+    
+    def get_page_size(self, page_index: int) -> Tuple[float, float]:
         """
-        Groups and merges rectangles based on strict vertical proximity (y_tolerance) 
-        and enforces a maximum height (max_height) to prevent merging results 
-        that span multiple lines of text.
-        """
-        if not rects:
-            return []
-
-        merged_results = []
+        Get the size of a page in points.
         
-        # 1. Sort by Y-coordinate (top-to-bottom) then by X-coordinate (left-to-right)
-        rects.sort(key=lambda r: (r.y0, r.x0))
-
-        current_group = [rects[0]]
-        current_merged_rect = self._merge_rects(current_group)
-
-        for i in range(1, len(rects)):
-            current_rect = rects[i]
+        Args:
+            page_index: 0-based index of the page
             
-            # 1. Vertical Proximity Check (strict for same line/split word)
-            vertical_gap = current_rect.y0 - current_merged_rect.y1
-            
-            # 2. Total Height Check: Don't merge if the resulting box would be too tall.
-            # Normal line height is usually around 12-15 units. We use 18.0 as a safe upper bound.
-            projected_y1 = max(current_rect.y1, current_merged_rect.y1)
-            projected_height = projected_y1 - current_merged_rect.y0
-            
-            # Merge Condition: The gap must be tiny AND the combined height must be reasonable.
-            is_contiguous = (vertical_gap <= y_tolerance) and (projected_height <= max_height)
-
-            if is_contiguous:
-                # Part of the same logical search match, add to the current group
-                current_group.append(current_rect)
-                current_merged_rect = self._merge_rects(current_group)
-            else:
-                # A vertical break occurred or the projected merged box is too tall.
-                merged_results.append(current_merged_rect)
-                
-                # Start a new group
-                current_group = [current_rect]
-                current_merged_rect = self._merge_rects(current_group)
-
-        # Merge and append the last group
-        if current_group:
-            merged_results.append(current_merged_rect)
-            
-        return merged_results
-
-    def get_toc(self):
-        """Returns the parsed table of contents with detailed positioning info."""
+        Returns:
+            Tuple of (width, height) in points
+        """
+        page = self.get_page(page_index)
+        if page:
+            rect = page.rect
+            return rect.width, rect.height
+        return 0.0, 0.0
+    
+    def get_toc(self) -> List[Tuple[int, str, int, float]]:
+        """
+        Get the processed table of contents.
+        
+        Returns:
+            List of (level, title, page_num, y_position) tuples
+        """
+        return self.toc
+    
+    def _process_toc(self) -> List[Tuple[int, str, int, float]]:
+        """
+        Process the PDF's table of contents with positioning info.
+        
+        Returns:
+            List of processed TOC entries
+        """
         if not self.doc:
             return []
         
         # Get the detailed TOC with full information
         raw_toc = self.doc.get_toc(simple=False)
-        
-        # Process TOC to ensure consistent format
         processed_toc = []
+        
         for entry in raw_toc:
             if len(entry) >= 3:
                 level, title, page_num = entry[:3]
                 
-                # Clean the title at the source
-                if title:
-                    # Handle surrogate escape sequences that PyMuPDF uses for undecodable bytes
-                    # These appear as \udcXX patterns
-                    import re
-                    
-                    # Remove all surrogate pair sequences (they appear as repeated \udcc0\udc80 patterns)
-                    # These are likely formatting characters (dots, leaders, etc.) in the original PDF
-                    cleaned_title = re.sub(r'[\udc00-\udfff]+', '', title)
-                    
-                    # Also remove any isolated high surrogates
-                    cleaned_title = re.sub(r'[\ud800-\udbff]+', '', cleaned_title)
-                    
-                    # Clean up any remaining special characters
-                    cleaned_title = cleaned_title.replace('\r', '')
-                    cleaned_title = cleaned_title.replace('\n', ' ')
-                    cleaned_title = cleaned_title.replace('\t', ' ')
-                    
-                    # Remove any other control characters
-                    cleaned_title = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned_title)
-                    
-                    # Clean up multiple spaces
-                    cleaned_title = re.sub(r'\s+', ' ', cleaned_title)
-                    cleaned_title = cleaned_title.strip()
-                    
-                    # If title is empty after cleaning, provide a default
-                    if not cleaned_title:
-                        cleaned_title = f"Section {page_num}"
-                    
-                    title = cleaned_title
-                else:
-                    title = f"Section {page_num}"
+                # Clean the title
+                title = self._clean_toc_title(title, page_num)
                 
-                # Extract y-coordinate if available in the details
+                # Extract y-coordinate if available
                 y_pos = 0.0
                 if len(entry) == 4:
                     details = entry[3]
@@ -184,60 +174,87 @@ class PDFDocumentReader:
                         elif 'y' in details:
                             y_pos = details['y']
                 
-                # Store in consistent format with cleaned title
                 processed_toc.append((level, title, page_num, y_pos))
         
         return processed_toc
-
-    def execute_search(self, search_term):
-        """
-        Performs a new search across the entire document for a given term,
-        using proximity-based merging to combine fragmented highlights.
-        """
-        if not search_term:
-            self._clear_search()
-            return 0
-        
-        if search_term != self.current_search_term:
-            self.current_search_term = search_term
-            self.search_results = []
-            
-            for i in range(self.total_pages):
-                page = self.doc.load_page(i)
-                
-                # Use quads=True as it is generally best practice for phrase search
-                quads_on_page = page.search_for(search_term, quads=True)
-                
-                # Convert quads to rects
-                rects_on_page = [q.rect for q in quads_on_page]
-                
-                # Use the new helper to merge consecutive rects on the same line
-                merged_rects = self._merge_consecutive_rects(rects_on_page)
-
-                for rect in merged_rects:
-                    self.search_results.append((i, rect))
-            
-            self.current_search_index = -1
-        return len(self.search_results)
-
-    def get_search_result_info(self):
-        """Returns the current search result page index and rectangle."""
-        if self.current_search_index == -1:
-            return None, None
-        return self.search_results[self.current_search_index]
-
-    def next_search_result(self):
-        """Moves to the next search result and returns its info."""
-        if not self.search_results: return None, None
-        self.current_search_index = (self.current_search_index + 1) % len(self.search_results)
-        return self.search_results[self.current_search_index]
-
-    def prev_search_result(self):
-        """Moves to the previous search result and returns its info."""
-        if not self.search_results: return None, None
-        self.current_search_index = (self.current_search_index - 1 + len(self.search_results)) % len(self.search_results)
-        return self.search_results[self.current_search_index]
     
-    def get_all_search_results(self):
-        """Returns the full list of search results."""
-        return self.search_results
+    def _clean_toc_title(self, title: str, page_num: int) -> str:
+        """
+        Clean a TOC title string.
+        
+        Args:
+            title: Raw title from TOC
+            page_num: Page number for fallback
+            
+        Returns:
+            Cleaned title string
+        """
+        if not title:
+            return f"Section {page_num}"
+        
+        # Handle surrogate escape sequences from PyMuPDF
+        # Remove surrogate pair sequences (formatting characters)
+        cleaned_title = re.sub(r'[\udc00-\udfff]+', '', title)
+        
+        # Remove isolated high surrogates
+        cleaned_title = re.sub(r'[\ud800-\udbff]+', '', cleaned_title)
+        
+        # Clean up special characters
+        cleaned_title = cleaned_title.replace('\r', '')
+        cleaned_title = cleaned_title.replace('\n', ' ')
+        cleaned_title = cleaned_title.replace('\t', ' ')
+        
+        # Remove control characters
+        cleaned_title = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned_title)
+        
+        # Clean up multiple spaces
+        cleaned_title = re.sub(r'\s+', ' ', cleaned_title)
+        cleaned_title = cleaned_title.strip()
+        
+        # If title is empty after cleaning, provide a default
+        if not cleaned_title:
+            cleaned_title = f"Section {page_num}"
+        
+        return cleaned_title
+    
+    def extract_text(self, page_index: int) -> str:
+        """
+        Extract plain text from a page.
+        
+        Args:
+            page_index: 0-based index of the page
+            
+        Returns:
+            Plain text content of the page
+        """
+        page = self.get_page(page_index)
+        if page:
+            return page.get_text()
+        return ""
+    
+    def extract_text_blocks(self, page_index: int) -> List[Dict]:
+        """
+        Extract text blocks with position information.
+        
+        Args:
+            page_index: 0-based index of the page
+            
+        Returns:
+            List of text block dictionaries
+        """
+        page = self.get_page(page_index)
+        if page:
+            return page.get_text("dict", sort=True).get("blocks", [])
+        return []
+    
+    def is_loaded(self) -> bool:
+        """Check if a document is currently loaded."""
+        return self.doc is not None
+    
+    def get_file_path(self) -> Optional[str]:
+        """Get the path of the currently loaded file."""
+        return self.current_file_path
+    
+    def get_page_count(self) -> int:
+        """Get the total number of pages."""
+        return self.total_pages
