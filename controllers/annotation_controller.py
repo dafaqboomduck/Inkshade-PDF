@@ -1,5 +1,5 @@
 """
-Controller for managing annotation operations.
+Controller for managing annotation operations with warning suppression.
 """
 from typing import List, Optional, Tuple
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import QMessageBox, QColorDialog, QWidget
 from PyQt5.QtGui import QColor
 
 from core.annotations import AnnotationManager, Annotation, AnnotationType
+from utils.warning_manager import warning_manager, WarningType
 
 
 class AnnotationController(QObject):
@@ -100,7 +101,7 @@ class AnnotationController(QObject):
     
     def delete_annotation(self, annotation: Annotation) -> bool:
         """
-        Delete an annotation with user confirmation.
+        Delete an annotation with one-time confirmation per session.
         
         Args:
             annotation: Annotation to delete
@@ -108,15 +109,16 @@ class AnnotationController(QObject):
         Returns:
             True if annotation was deleted
         """
-        reply = QMessageBox.question(
+        # Use warning manager for one-time confirmation
+        confirmed = warning_manager.show_confirmation(
             self.parent_widget,
+            WarningType.DELETE_ANNOTATION,
             "Delete Annotation",
             "Are you sure you want to delete this annotation?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            show_dont_ask=True
         )
         
-        if reply == QMessageBox.Yes:
+        if confirmed:
             if self.annotation_manager.remove_annotation(annotation):
                 self.annotations_changed.emit()
                 return True
@@ -250,7 +252,7 @@ class AnnotationController(QObject):
     
     def check_unsaved_changes(self) -> Optional[int]:
         """
-        Check for unsaved changes and prompt user.
+        Check for unsaved changes and prompt user with one-time warning.
         
         Returns:
             QMessageBox result or None if no unsaved changes
@@ -258,12 +260,13 @@ class AnnotationController(QObject):
         if not self.annotation_manager.has_unsaved_changes:
             return None
         
-        return QMessageBox.question(
+        # Use warning manager for potentially one-time warning
+        return warning_manager.show_save_discard_cancel(
             self.parent_widget,
+            WarningType.UNSAVED_CHANGES,
             "Unsaved Changes",
             "You have unsaved annotations. Do you want to save them?",
-            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-            QMessageBox.Save
+            show_dont_ask=False  # We typically don't want to suppress save prompts
         )
     
     def _words_to_quads(self, selected_words: set) -> List[List[float]]:

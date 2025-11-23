@@ -34,6 +34,7 @@ from ui.toolbars import AnnotationToolbar, DrawingToolbar, SearchBar
 
 # Utils and styles
 from utils import get_resource_path, get_icon_path
+from utils.warning_manager import warning_manager, WarningType
 from styles import ThemeManager
 
 
@@ -457,19 +458,27 @@ class MainWindow(QMainWindow):
             self._update_undo_redo_buttons()
     
     def close_pdf(self):
-        """Close the current PDF."""
+        """Close the current PDF with one-time warning per session."""
         if not self.pdf_reader.is_loaded():
             return
         
         # Check for unsaved changes
-        result = self.annotation_controller.check_unsaved_changes()
-        if result == QMessageBox.Save:
-            if not self.save_annotations_to_pdf():
+        if self.annotation_manager.has_unsaved_changes:
+            result = warning_manager.show_save_discard_cancel(
+                self,
+                WarningType.CLOSE_PDF_UNSAVED,
+                "Unsaved Changes",
+                "You have unsaved annotations. Do you want to save them before closing?",
+                show_dont_ask=True
+            )
+            
+            if result == QMessageBox.Save:
+                if not self.save_annotations_to_pdf():
+                    return
+            elif result == QMessageBox.Cancel:
                 return
-        elif result == QMessageBox.Cancel:
-            return
-        elif result == QMessageBox.Discard:
-            self.annotation_manager.delete_json_file()
+            elif result == QMessageBox.Discard:
+                self.annotation_manager.delete_json_file()
         
         # Close document
         self.pdf_reader.close_document()
@@ -996,9 +1005,16 @@ class MainWindow(QMainWindow):
         self._update_toolbar_positions()
     
     def closeEvent(self, event):
-        """Handle window close."""
+        """Handle window close with one-time warning per session."""
         if self.annotation_manager.has_unsaved_changes:
-            result = self.annotation_controller.check_unsaved_changes()
+            # Use warning manager for potentially one-time warning
+            result = warning_manager.show_save_discard_cancel(
+                self,
+                WarningType.EXIT_UNSAVED,
+                "Unsaved Changes",
+                "You have unsaved annotations. Do you want to save them before exiting?",
+                show_dont_ask=True  # Allow suppressing exit warnings
+            )
             
             if result == QMessageBox.Save:
                 if self.save_annotations_to_pdf():
@@ -1009,9 +1025,7 @@ class MainWindow(QMainWindow):
             elif result == QMessageBox.Discard:
                 self.annotation_manager.delete_json_file()
                 event.accept()
-            elif result == QMessageBox.Cancel:
+            else:  # Cancel
                 event.ignore()
-            else:
-                event.accept()
         else:
             event.accept()
