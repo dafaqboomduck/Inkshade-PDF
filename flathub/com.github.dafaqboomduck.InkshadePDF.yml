@@ -1,0 +1,67 @@
+app-id: com.github.dafaqboomduck.InkshadePDF
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+command: inkshade-pdf
+build-options:
+  # Allow network access during build for pip
+  build-args:
+    - --share=network
+
+finish-args:
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --filesystem=home
+  - --filesystem=host
+  - --device=dri
+
+modules:
+  - name: python3-PyQt5-sip
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=${FLATPAK_DEST} PyQt5_sip==12.17.1
+    sources: []
+
+  - name: python3-PyQt5
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=${FLATPAK_DEST} PyQt5==5.15.11
+    sources: []
+
+  - name: python3-PyMuPDF
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=${FLATPAK_DEST} PyMuPDF==1.26.6
+    sources: []
+
+  - name: python3-pyperclip
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=${FLATPAK_DEST} pyperclip==1.11.0
+    sources: []
+
+  - name: inkshade-pdf
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib/inkshade-pdf
+      - cp -r controllers core helpers styles ui utils *.py /app/lib/inkshade-pdf/
+      - cp -r resources /app/lib/inkshade-pdf/
+      - |
+        cat > /app/bin/inkshade-pdf << 'EOF'
+        #!/bin/sh
+        cd /app/lib/inkshade-pdf
+        exec python3 main.py "$@"
+        EOF
+      - chmod +x /app/bin/inkshade-pdf
+      - install -Dm644 com.github.dafaqboomduck.InkshadePDF.desktop /app/share/applications/com.github.dafaqboomduck.InkshadePDF.desktop
+      - install -Dm644 resources/icons/inkshade.png /app/share/icons/hicolor/256x256/apps/com.github.dafaqboomduck.InkshadePDF.png
+      - install -Dm644 com.github.dafaqboomduck.InkshadePDF.metainfo.xml /app/share/metainfo/com.github.dafaqboomduck.InkshadePDF.metainfo.xml
+    sources:
+      - type: git
+        url: https://github.com/dafaqboomduck/Inkshade-PDF.git
+        branch: main
+      - type: file
+        path: com.github.dafaqboomduck.InkshadePDF.desktop
+      - type: file
+        path: com.github.dafaqboomduck.InkshadePDF.metainfo.xml
