@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Inkshade PDF
+GenericName=PDF Reader
+Comment=A modern and intuitive PDF reader with annotation support
+Exec=inkshade-pdf %f
+Icon=com.github.dafaqboomduck.InkshadePDF
+Terminal=false
+Type=Application
+Categories=Office;Viewer;
+MimeType=application/pdf;
+Keywords=pdf;reader;viewer;annotate;highlight;
+StartupNotify=true
+StartupWMClass=inkshade-pdf
