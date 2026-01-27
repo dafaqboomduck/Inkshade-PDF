@@ -62,6 +62,6 @@ modules:
         url: https://github.com/dafaqboomduck/Inkshade-PDF.git
         branch: main
       - type: file
-        path: com.github.dafaqboomduck.InkshadePDF.desktop
+        path: flatpak/com.github.dafaqboomduck.InkshadePDF.desktop
       - type: file
-        path: com.github.dafaqboomduck.InkshadePDF.metainfo.xml
+        path: flatpak/com.github.dafaqboomduck.InkshadePDF.metainfo.xml
