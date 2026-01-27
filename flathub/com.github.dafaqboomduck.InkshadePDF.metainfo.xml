@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component type="desktop-application">
+  <id>com.github.dafaqboomduck.InkshadePDF</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>BSD-3-Clause</project_license>
+  <name>Inkshade PDF</name>
+  <summary>Modern PDF reader with annotation and drawing tools</summary>
+
+  <description>
+    <p>
+      Inkshade PDF is a modern and intuitive desktop PDF reader featuring advanced
+      text selection, powerful search capabilities, and comprehensive annotation tools.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Advanced text selection with word-by-word precision</li>
+      <li>Powerful search with navigation between results</li>
+      <li>Highlight and annotate text</li>
+      <li>Freehand drawing tools</li>
+      <li>Dark and light mode themes</li>
+      <li>Customizable zoom levels</li>
+      <li>Table of contents navigation</li>
+      <li>Undo/redo support for annotations</li>
+      <li>Save annotations to PDF files</li>
+    </ul>
+  </description>
+
+  <launchable
+        type="desktop-id"
+    >com.github.dafaqboomduck.InkshadePDF.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main window showing PDF with annotations</caption>
+      <image
+            >https://raw.githubusercontent.com/dafaqboomduck/Inkshade-PDF/main/screenshots/main.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Dark mode with search functionality</caption>
+      <image
+            >https://raw.githubusercontent.com/dafaqboomduck/Inkshade-PDF/main/screenshots/search.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/dafaqboomduck/Inkshade-PDF</url>
+  <url
+        type="bugtracker"
+    >https://github.com/dafaqboomduck/Inkshade-PDF/issues</url>
+
+  <provides>
+    <binary>inkshade-pdf</binary>
+  </provides>
+
+  <releases>
+    <release version="1.2.0" date="2025-01-27">
+      <description>
+        <p>1.2.0 release with refactored architecture</p>
+        <ul>
+          <li>Modular codebase with dedicated controllers</li>
+          <li>Improved annotation management</li>
+          <li>Enhanced undo/redo functionality</li>
+          <li>Better state management</li>
+          <li>Freehand drawing tools</li>
+          <li>Session-based warning system</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1" />
+
+  <developer_name>Razvan Nica</developer_name>
+
+  <categories>
+    <category>Office</category>
+    <category>Viewer</category>
+  </categories>
+
+  <keywords>
+    <keyword>PDF</keyword>
+    <keyword>Reader</keyword>
+    <keyword>Viewer</keyword>
+    <keyword>Annotate</keyword>
+    <keyword>Highlight</keyword>
+  </keywords>
+</component>

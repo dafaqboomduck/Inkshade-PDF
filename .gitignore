@@ -7,3 +7,5 @@ requirements.txt
 installer.nsi
 versionfile.txt
 pyinstaller_versionfile.py
+
+.flatpak-builder/
