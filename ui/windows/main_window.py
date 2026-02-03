@@ -95,6 +95,11 @@ class MainWindow(QMainWindow):
         self.search_engine = PDFSearchEngine()
         self.search_worker: Optional[SearchWorker] = None
 
+        # Chunked search state
+        self._search_term: str = ""
+        self._search_page: int = 0
+        self._search_cancelled: bool = False
+
         # View state
         self.dark_mode = True
         self.zoom = 2.2
@@ -731,7 +736,7 @@ class MainWindow(QMainWindow):
         self._clear_search()
 
     def _execute_search(self, search_term: str):
-        """Execute a search using background thread for large documents."""
+        """Execute search in chunks to keep UI responsive."""
         try:
             if not search_term:
                 self.search_bar.set_status("0 results")
@@ -741,29 +746,20 @@ class MainWindow(QMainWindow):
             if not self.pdf_reader.doc:
                 return
 
-            # Cancel any existing search
-            if self.search_worker is not None and self.search_worker.isRunning():
-                self.search_worker.cancel()
-                self.search_worker.wait()
-
             # Clear previous results
             self.search_engine.clear_search()
             self.search_engine.start_search(search_term)
 
+            # Store search state for chunked processing
+            self._search_term = search_term
+            self._search_page = 0
+            self._search_cancelled = False
+
             # Update status
             self.search_bar.set_status("Searching...")
 
-            # Create and start worker
-            self.search_worker = SearchWorker(self.pdf_reader.doc, search_term, self)
-
-            # Connect signals
-            self.search_worker.progress.connect(self._on_search_progress)
-            self.search_worker.result_found.connect(self._on_search_result_found)
-            self.search_worker.finished.connect(self._on_search_finished)
-            self.search_worker.error.connect(self._on_search_error)
-
-            # Start search
-            self.search_worker.start()
+            # Start chunked search
+            QTimer.singleShot(0, self._search_next_chunk)
 
         except Exception as e:
             print(f"SEARCH ERROR: {e}")
@@ -771,54 +767,125 @@ class MainWindow(QMainWindow):
 
             traceback.print_exc()
 
-    def _on_search_progress(self, current_page: int, total_pages: int):
-        """Handle search progress updates."""
-        self.search_bar.set_status(f"Searching page {current_page}/{total_pages}...")
+    def _search_next_chunk(self):
+        """Search a chunk of pages, then yield to UI."""
+        if self._search_cancelled or not self.pdf_reader.doc:
+            self._finish_chunked_search()
+            return
 
-    def _on_search_result_found(self, result):
-        """Handle individual search result found."""
-        self.search_engine.add_result(result)
+        CHUNK_SIZE = 20  # Pages per chunk
+        total_pages = self.pdf_reader.total_pages
+        start_page = self._search_page
+        end_page = min(start_page + CHUNK_SIZE, total_pages)
 
-    def _on_search_finished(self, total_results: int):
-        """Handle search completion."""
+        # Update progress
+        self.search_bar.set_status(f"Searching... {start_page}/{total_pages}")
+
+        # Search this chunk
+        for page_idx in range(start_page, end_page):
+            if self._search_cancelled:
+                break
+
+            try:
+                page = self.pdf_reader.doc.load_page(page_idx)
+                quads = page.search_for(self._search_term, quads=True)
+                rects = [q.rect for q in quads]
+                merged = self._merge_search_rects(rects)
+
+                for rect in merged:
+                    from core.search.models import SearchResult
+
+                    rect_tuple = (
+                        rect.x0,
+                        rect.y0,
+                        rect.x1,
+                        rect.y1,
+                        rect.width,
+                        rect.height,
+                    )
+                    result = SearchResult(
+                        page_index=page_idx, rect=rect_tuple, text=self._search_term
+                    )
+                    self.search_engine.add_result(result)
+
+            except Exception as e:
+                print(f"Error searching page {page_idx}: {e}")
+                continue
+
+        self._search_page = end_page
+
+        # Continue or finish
+        if end_page < total_pages and not self._search_cancelled:
+            # Schedule next chunk - gives UI time to breathe
+            QTimer.singleShot(1, self._search_next_chunk)
+        else:
+            self._finish_chunked_search()
+
+    def _finish_chunked_search(self):
+        """Complete the chunked search."""
         self.search_engine.finish_search()
+        total = self.search_engine.get_result_count()
 
-        if total_results > 0:
-            self.search_bar.set_status(f"1 of {total_results}")
+        if total > 0:
             self._find_next()
         else:
             self.search_bar.set_status("0 results")
             self.page_manager.update_page_highlights()
 
-        # Clean up worker
-        if self.search_worker:
-            self.search_worker.deleteLater()
-            self.search_worker = None
+    def _merge_search_rects(self, rects, y_tolerance=3.0, max_height=18.0):
+        """Merge consecutive search rectangles."""
+        if not rects:
+            return []
 
-    def _on_search_error(self, error_msg: str):
-        """Handle search error."""
-        print(f"Search error: {error_msg}")
-        self.search_bar.set_status("Search failed")
-        self.search_engine.finish_search()
+        import fitz
 
-        if self.search_worker:
-            self.search_worker.deleteLater()
-            self.search_worker = None
+        rects = sorted(rects, key=lambda r: (r.y0, r.x0))
+        merged = []
+        current = [rects[0]]
+
+        def merge_group(group):
+            if not group:
+                return None
+            x0 = min(r.x0 for r in group)
+            y0 = min(r.y0 for r in group)
+            x1 = max(r.x1 for r in group)
+            y1 = max(r.y1 for r in group)
+            return fitz.Rect(x0, y0, x1, y1)
+
+        current_rect = merge_group(current)
+
+        for i in range(1, len(rects)):
+            rect = rects[i]
+            gap = rect.y0 - current_rect.y1
+            proj_height = max(rect.y1, current_rect.y1) - current_rect.y0
+
+            if gap <= y_tolerance and proj_height <= max_height:
+                current.append(rect)
+                current_rect = merge_group(current)
+            else:
+                merged.append(current_rect)
+                current = [rect]
+                current_rect = merge_group(current)
+
+        if current:
+            merged.append(merge_group(current))
+
+        return merged
 
     def _find_next(self):
         """Find next search result."""
         if self.search_engine.is_searching():
-            return  # Don't navigate while still searching
+            return
 
-        page_idx, rect = self.search_engine.next_result()
+        self.search_engine.next_result()
         self._jump_to_current_search_result()
 
     def _find_prev(self):
         """Find previous search result."""
         if self.search_engine.is_searching():
-            return  # Don't navigate while still searching
+            return
 
-        page_idx, rect = self.search_engine.previous_result()
+        self.search_engine.previous_result()
         self._jump_to_current_search_result()
 
     def _jump_to_current_search_result(self):
@@ -826,7 +893,6 @@ class MainWindow(QMainWindow):
         page_idx, rect = self.search_engine.get_current_result()
 
         if page_idx is not None and rect is not None:
-            # rect is already a tuple from SearchResult
             if hasattr(rect, "x0"):
                 rect_tuple = (
                     rect.x0,
@@ -847,13 +913,7 @@ class MainWindow(QMainWindow):
 
     def _clear_search(self):
         """Clear search results."""
-        # Cancel any running search
-        if self.search_worker is not None and self.search_worker.isRunning():
-            self.search_worker.cancel()
-            self.search_worker.wait()
-            self.search_worker.deleteLater()
-            self.search_worker = None
-
+        self._search_cancelled = True
         self.search_engine.clear_search()
         self.search_bar.clear_search()
         self.page_manager.update_page_highlights()
