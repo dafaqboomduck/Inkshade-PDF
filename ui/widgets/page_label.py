@@ -391,36 +391,49 @@ class InteractivePageLabel(QLabel):
             return
 
         for i, rect in enumerate(self.search_highlights):
-            # Handle fitz.Rect objects
-            if hasattr(rect, "x0"):
-                x0, y0 = rect.x0, rect.y0
-                w, h = rect.width, rect.height
-            else:
-                # Handle tuple format
-                x0, y0, x1, y1 = rect
-                w, h = x1 - x0, y1 - y0
+            try:
+                # Handle fitz.Rect objects (legacy)
+                if hasattr(rect, "x0"):
+                    x0, y0 = rect.x0, rect.y0
+                    w, h = rect.width, rect.height
+                # Handle tuple formats
+                elif isinstance(rect, (tuple, list)):
+                    if len(rect) == 6:
+                        # Format: (x0, y0, x1, y1, width, height)
+                        x0, y0, x1, y1, w, h = rect
+                    elif len(rect) == 4:
+                        # Format: (x0, y0, x1, y1)
+                        x0, y0, x1, y1 = rect
+                        w, h = x1 - x0, y1 - y0
+                    else:
+                        continue  # Skip invalid format
+                else:
+                    continue  # Skip unknown type
 
-            screen_rect = QRectF(
-                x0 * self.zoom, y0 * self.zoom, w * self.zoom, h * self.zoom
-            )
-
-            # Current result gets different color
-            if i == self.current_search_highlight_index:
-                color = (
-                    QColor(255, 165, 0, 150)
-                    if self.dark_mode
-                    else QColor(255, 140, 0, 150)
-                )
-            else:
-                color = (
-                    QColor(255, 255, 0, 80)
-                    if self.dark_mode
-                    else QColor(255, 255, 0, 100)
+                screen_rect = QRectF(
+                    x0 * self.zoom, y0 * self.zoom, w * self.zoom, h * self.zoom
                 )
 
-            painter.setBrush(QBrush(color))
-            painter.setPen(Qt.NoPen)
-            painter.drawRect(screen_rect)
+                # Current result gets different color
+                if i == self.current_search_highlight_index:
+                    color = (
+                        QColor(255, 165, 0, 150)
+                        if self.dark_mode
+                        else QColor(255, 140, 0, 150)
+                    )
+                else:
+                    color = (
+                        QColor(255, 255, 0, 80)
+                        if self.dark_mode
+                        else QColor(255, 255, 0, 100)
+                    )
+
+                painter.setBrush(QBrush(color))
+                painter.setPen(Qt.NoPen)
+                painter.drawRect(screen_rect)
+            except Exception as e:
+                print(f"Error painting search highlight: {e}")
+                continue
 
     def _paint_link_hover(self, painter: QPainter):
         """Paint link hover indication."""
