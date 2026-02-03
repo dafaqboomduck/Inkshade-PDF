@@ -337,28 +337,26 @@ class InteractivePageLabel(QLabel):
     # Paint methods
 
     def paintEvent(self, event):
-        super().paintEvent(event)
+        try:
+            super().paintEvent(event)
 
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
 
-        # Draw selection highlights
-        self._paint_selection(painter)
+            self._paint_selection(painter)
+            self._paint_search_highlights(painter)
+            self._paint_link_hover(painter)
+            self._paint_annotations(painter)
 
-        # Draw search highlights  <-- ADD THIS
-        self._paint_search_highlights(painter)
+            if self._is_drawing and self._drawing_points:
+                self._paint_drawing_preview(painter)
 
-        # Draw link hover effect
-        self._paint_link_hover(painter)
+            painter.end()
+        except Exception as e:
+            print(f"PAINT ERROR: {e}")
+            import traceback
 
-        # Draw annotations
-        self._paint_annotations(painter)
-
-        # Draw current drawing preview
-        if self._is_drawing and self._drawing_points:
-            self._paint_drawing_preview(painter)
-
-        painter.end()
+            traceback.print_exc()
 
     def _paint_selection(self, painter: QPainter):
         """Paint text selection highlights."""
