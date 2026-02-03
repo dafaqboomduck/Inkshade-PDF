@@ -2,37 +2,14 @@
 Unified page model combining rendering, text, and links.
 """
 
-from dataclasses import dataclass
-from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import fitz
 from PyQt5.QtGui import QImage, QPixmap
 
-from .link_layer import LinkInfo, PageLinkLayer
-from .text_layer import CharacterInfo, PageTextLayer
-
-
-class InteractionType(Enum):
-    """Type of interactive element at a point."""
-
-    NONE = "none"
-    TEXT = "text"
-    LINK = "link"
-    IMAGE = "image"
-    ANNOTATION = "annotation"
-
-
-@dataclass
-class InteractionResult:
-    """Result of checking what's at a point."""
-
-    type: InteractionType
-    element: Any = None
-
-    @property
-    def is_interactive(self) -> bool:
-        return self.type != InteractionType.NONE
+from .link_layer import PageLinkLayer
+from .models import CharacterInfo, InteractionResult, InteractionType, LinkInfo
+from .text_layer import PageTextLayer
 
 
 class PageModel:

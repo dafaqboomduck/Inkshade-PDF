@@ -2,74 +2,11 @@
 Link extraction and handling for PDF pages.
 """
 
-from dataclasses import dataclass
-from enum import Enum
 from typing import List, Optional, Tuple
 
 import fitz
 
-
-class LinkType(Enum):
-    """Types of links in a PDF."""
-
-    GOTO = "goto"  # Internal page navigation
-    GOTO_R = "goto_r"  # Remote PDF link
-    URI = "uri"  # External URL
-    LAUNCH = "launch"  # Launch external application
-    NAMED = "named"  # Named destination
-    UNKNOWN = "unknown"
-
-
-@dataclass
-class LinkDestination:
-    """Destination information for internal links."""
-
-    page_num: int  # 0-based page number
-    x: float = 0.0  # X position on page
-    y: float = 0.0  # Y position on page
-    zoom: Optional[float] = None  # Zoom level (if specified)
-
-
-@dataclass
-class LinkInfo:
-    """Represents a clickable link in the PDF."""
-
-    bbox: Tuple[float, float, float, float]  # x0, y0, x1, y1
-    link_type: LinkType
-
-    # For internal links (goto)
-    destination: Optional[LinkDestination] = None
-
-    # For external links (uri)
-    uri: Optional[str] = None
-
-    # For named destinations
-    named_dest: Optional[str] = None
-
-    # For file links
-    file_path: Optional[str] = None
-
-    # Original link data for debugging
-    _raw_data: Optional[dict] = None
-
-    def contains_point(self, x: float, y: float) -> bool:
-        """Check if a point is within this link's bounds."""
-        return self.bbox[0] <= x <= self.bbox[2] and self.bbox[1] <= y <= self.bbox[3]
-
-    @property
-    def display_text(self) -> str:
-        """Get a displayable description of the link."""
-        if self.link_type == LinkType.URI:
-            return self.uri or "External Link"
-        elif self.link_type == LinkType.GOTO:
-            if self.destination:
-                return f"Go to page {self.destination.page_num + 1}"
-            return "Internal Link"
-        elif self.link_type == LinkType.NAMED:
-            return f"#{self.named_dest}" if self.named_dest else "Named Link"
-        elif self.link_type == LinkType.LAUNCH:
-            return self.file_path or "Open File"
-        return "Link"
+from .models import LinkDestination, LinkInfo, LinkType
 
 
 class PageLinkLayer:
