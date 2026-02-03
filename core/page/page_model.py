@@ -79,14 +79,25 @@ class PageModel:
     def text_layer(self) -> PageTextLayer:
         """Get text layer, creating if necessary."""
         if self._text_layer is None:
-            self._text_layer = PageTextLayer(self.page)
+            try:
+                self._text_layer = PageTextLayer(self.page)
+            except Exception as e:
+                # Return empty text layer on failure
+                self._text_layer = PageTextLayer.__new__(PageTextLayer)
+                self._text_layer.characters = []
+                self._text_layer.blocks = []
+                self._text_layer._char_grid = {}
         return self._text_layer
 
     @property
     def link_layer(self) -> PageLinkLayer:
         """Get link layer, creating if necessary."""
         if self._link_layer is None:
-            self._link_layer = PageLinkLayer(self.page, self._doc)
+            try:
+                self._link_layer = PageLinkLayer(self.page, self._doc)
+            except Exception as e:
+                self._link_layer = PageLinkLayer.__new__(PageLinkLayer)
+                self._link_layer.links = []
         return self._link_layer
 
     def render_pixmap(

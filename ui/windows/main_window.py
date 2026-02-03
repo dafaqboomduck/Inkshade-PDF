@@ -731,18 +731,24 @@ class MainWindow(QMainWindow):
 
     def _execute_search(self, search_term: str):
         """Execute a search."""
-        if not search_term:
-            self.search_bar.set_status("0 results")
-            self.page_manager.update_page_highlights()
-            return
+        try:
+            if not search_term:
+                self.search_bar.set_status("0 results")
+                self.page_manager.update_page_highlights()
+                return
 
-        num_results = self.search_engine.execute_search(search_term)
+            num_results = self.search_engine.execute_search(search_term)
 
-        if num_results > 0:
-            self._find_next()
-        else:
-            self.search_bar.set_status("0 results")
-            self.page_manager.update_page_highlights()
+            if num_results > 0:
+                self._find_next()
+            else:
+                self.search_bar.set_status("0 results")
+                self.page_manager.update_page_highlights()
+        except Exception as e:
+            print(f"SEARCH ERROR: {e}")
+            import traceback
+
+            traceback.print_exc()
 
     def _find_next(self):
         """Find next search result."""
@@ -759,9 +765,10 @@ class MainWindow(QMainWindow):
         page_idx, rect = self.search_engine.get_current_result()
 
         if page_idx is not None and rect is not None:
-            self.page_manager.jump_to_search_result(page_idx, rect)
+            # Convert rect to tuple BEFORE passing
+            rect_tuple = (rect.x0, rect.y0, rect.x1, rect.y1, rect.width, rect.height)
+            self.page_manager.jump_to_search_result(page_idx, rect_tuple)
 
-            # Update status
             current_idx = self.search_engine.get_current_index()
             total_results = self.search_engine.get_result_count()
             self.search_bar.set_status(f"{current_idx + 1} of {total_results}")

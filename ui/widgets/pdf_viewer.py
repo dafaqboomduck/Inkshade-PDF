@@ -166,20 +166,29 @@ class PDFViewer:
 
         page_model = self.page_models[idx]
 
+        # Let Qt process events to prevent UI freeze/crash
+        QApplication.processEvents()
+
         # Get search highlights
         rects_on_page = []
         current_idx_on_page = -1
 
         if hasattr(self.main_window, "search_engine"):
             search_engine = self.main_window.search_engine
-            rects_on_page, current_idx_on_page = (
-                SearchHighlight.get_highlights_for_page(search_engine, idx)
+            raw_rects, current_idx_on_page = SearchHighlight.get_highlights_for_page(
+                search_engine, idx
             )
+            for r in raw_rects:
+                if hasattr(r, "x0"):
+                    rects_on_page.append((r.x0, r.y0, r.x1, r.y1))
+                else:
+                    rects_on_page.append(r)
 
-        # Get annotations for this page
         annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
 
-        # Create interactive page label
+        # Let Qt breathe again before creating widget
+        QApplication.processEvents()
+
         label = InteractivePageLabel(
             page_model=page_model,
             zoom=self.zoom,
@@ -312,36 +321,65 @@ class PDFViewer:
         # Update visible pages after scrolling
         QTimer.singleShot(50, lambda: self.main_window.update_visible_pages())
 
-    def jump_to_search_result(self, page_idx: int, rect):
+    def jump_to_search_result(self, page_idx: int, rect_tuple):
         """Scroll to center on a search result."""
-        if page_idx is None or self.page_height is None or rect is None:
+        if page_idx is None or self.page_height is None or rect_tuple is None:
             return
 
-        scroll_offset = self.scroll_area.height() / 2 - (rect.height * self.zoom) / 2
+        # rect_tuple = (x0, y0, x1, y1, width, height)
+        y0 = rect_tuple[1]
+        height = rect_tuple[5]
+
+        scroll_offset = self.scroll_area.height() / 2 - (height * self.zoom) / 2
         target_y = (
             (page_idx * (self.page_height + self.page_spacing))
-            + (rect.y0 * self.zoom)
+            + (y0 * self.zoom)
             - scroll_offset
         )
 
+        # Block signals to prevent scroll handler from firing during setValue
+        self.scroll_area.verticalScrollBar().blockSignals(True)
         self.scroll_area.verticalScrollBar().setValue(int(target_y))
-        self.update_page_highlights()
+        self.scroll_area.verticalScrollBar().blockSignals(False)
+
+        # Now manually update pages and highlights with delay
+        QTimer.singleShot(50, lambda: self._finish_search_jump(page_idx))
+
+    def _finish_search_jump(self, page_idx: int):
+        """Complete the search jump after scroll."""
+        # Load pages around the target
+        self.update_visible_pages(page_idx)
+        # Then update highlights
+        QTimer.singleShot(50, self.update_page_highlights)
 
     def update_page_highlights(self):
         """Update search highlights on all loaded pages."""
-        for idx, label in self.loaded_pages.items():
-            rects_on_page = []
-            current_idx_on_page = -1
+        try:
+            for idx, label in self.loaded_pages.items():
+                rects_on_page = []
+                current_idx_on_page = -1
 
-            if hasattr(self.main_window, "search_engine"):
-                search_engine = self.main_window.search_engine
-                rects_on_page, current_idx_on_page = (
-                    SearchHighlight.get_highlights_for_page(search_engine, idx)
-                )
+                if hasattr(self.main_window, "search_engine"):
+                    search_engine = self.main_window.search_engine
+                    raw_rects, current_idx_on_page = (
+                        SearchHighlight.get_highlights_for_page(search_engine, idx)
+                    )
 
-            label.search_highlights = rects_on_page
-            label.current_search_highlight_index = current_idx_on_page
-            label.update()
+                    # Convert fitz.Rect to tuples to avoid C++ object issues
+                    for r in raw_rects:
+                        if hasattr(r, "x0"):
+                            rects_on_page.append((r.x0, r.y0, r.x1, r.y1))
+                        else:
+                            rects_on_page.append(r)
+
+                label.search_highlights = rects_on_page
+                label.current_search_highlight_index = current_idx_on_page
+                label.update()
+        except Exception as e:
+            print(f"HIGHLIGHT ERROR: {e}")
+            import traceback
+
+            traceback.print_exc()
 
     def copy_selected_text(self) -> str:
         """Get all selected text for copying."""

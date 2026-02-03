@@ -1,5 +1,8 @@
-"""Text selection management."""
+"""
+Text selection management for PDF documents.
+"""
 
-from .selection_manager import PageSelection, SelectionAnchor, SelectionManager
+from .models import PageSelection, SelectionAnchor
+from .selection_manager import SelectionManager
 
 __all__ = ["SelectionManager", "SelectionAnchor", "PageSelection"]

@@ -3,7 +3,7 @@ Handles link click actions and navigation.
 """
 
 import webbrowser
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox
@@ -68,6 +68,7 @@ class LinkNavigationHandler(QObject):
 
     def _navigate_to_internal(self, link: LinkInfo) -> bool:
         """Navigate to an internal page destination."""
+
         if not link.destination:
             self.link_action_failed.emit("Invalid link destination")
             return False
@@ -82,7 +83,8 @@ class LinkNavigationHandler(QObject):
         # Direct navigation if main_window available
         if self.main_window:
             self.main_window.page_manager.jump_to_page(page_num, y_offset)
-
+        else:
+            print("DEBUG: main_window is None!")
         return True
 
     def _navigate_to_remote(self, link: LinkInfo) -> bool:
