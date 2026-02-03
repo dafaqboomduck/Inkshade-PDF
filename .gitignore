@@ -10,3 +10,4 @@ pyinstaller_versionfile.py
 
 .flatpak-builder/
 repo/
+*.flatpak
