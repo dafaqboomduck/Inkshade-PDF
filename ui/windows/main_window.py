@@ -937,25 +937,50 @@ class MainWindow(QMainWindow):
     def _create_annotation_from_selection(
         self, annotation_type: AnnotationType, color: tuple
     ):
-        """Create an annotation from selected text."""
-        if (
-            self.pdf_reader.doc is None
-            or self.current_page_index not in self.loaded_pages
-        ):
+        """Create an annotation from selected text using character-level selection."""
+        if self.pdf_reader.doc is None:
             return
 
-        current_page_widget = self.loaded_pages[self.current_page_index]
-        selected_words = current_page_widget.selected_words
-
-        success = self.annotation_controller.create_text_annotation(
-            self.current_page_index, selected_words, annotation_type, color
+        # Get selection from the selection manager (new character-level system)
+        selection = self.page_manager.selection_manager.get_selection_for_page(
+            self.current_page_index
         )
 
-        if success:
-            # Clear selection
-            current_page_widget.selected_words.clear()
-            current_page_widget.selection_rects = []
-            self._refresh_current_page()
+        if not selection or not selection.rects:
+            QMessageBox.information(
+                self,
+                "No Selection",
+                "Please select text before creating an annotation.",
+            )
+            return
+
+        # Convert selection rects to quads for annotation
+        # Selection rects are (x0, y0, x1, y1) in PDF coordinates
+        # Quads are [x0, y0, x1, y0, x0, y1, x1, y1] format
+        quads = []
+        for rect in selection.rects:
+            x0, y0, x1, y1 = rect
+            quad = [x0, y0, x1, y0, x0, y1, x1, y1]
+            quads.append(quad)
+
+        # Create annotation directly
+        from core.annotations import Annotation
+
+        annotation = Annotation(
+            page_index=self.current_page_index,
+            annotation_type=annotation_type,
+            color=color,
+            quads=quads,
+        )
+
+        self.annotation_manager.add_annotation(annotation)
+
+        # Clear selection
+        self.page_manager.selection_manager.clear()
+        self._refresh_current_page()
+
+        # Emit signal for UI updates
+        self.annotation_controller.annotations_changed.emit()
 
     def show_drawing_toolbar(self):
         """Show or hide the drawing toolbar."""
