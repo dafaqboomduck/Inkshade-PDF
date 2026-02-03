@@ -65,8 +65,14 @@ class PDFViewer:
         self.page_container.setMinimumHeight(0)
         self.page_container.resizeEvent = self.container_resize_event
 
-    def clear_all(self):
-        """Clears all loaded pages and resets state."""
+    def clear_all(self, keep_dimensions: bool = False):
+        """
+        Clears all loaded pages and resets state.
+
+        Args:
+            keep_dimensions: If True, don't reset page_height or container height.
+                            Used during zoom/theme changes to prevent scroll jump.
+        """
         # Create a list copy of keys to avoid dictionary modification during iteration
         page_indices = list(self.loaded_pages.keys())
 
@@ -91,9 +97,10 @@ class PDFViewer:
         # Clear selection
         self.selection_manager.clear()
 
-        # Reset state
-        self.page_height = None
-        self.page_container.setMinimumHeight(0)
+        # Only reset dimensions if not keeping them
+        if not keep_dimensions:
+            self.page_height = None
+            self.page_container.setMinimumHeight(0)
 
         # Force immediate update of the container
         self.page_container.update()
@@ -175,6 +182,23 @@ class PDFViewer:
 
         # Update selection manager with current page models
         self.selection_manager.set_page_models(self.page_models)
+
+    def set_page_height(self, new_height: int):
+        """
+        Manually set page height (used during zoom to prevent flash).
+
+        Args:
+            new_height: New page height in pixels
+        """
+        self.page_height = new_height
+        if self.pdf_reader_core.total_pages > 0:
+            total_height = (
+                self.pdf_reader_core.total_pages
+                * (self.page_height + self.page_spacing)
+                - self.page_spacing
+            )
+            self.page_container.setMinimumHeight(total_height)
+            self.main_window.page_height = self.page_height
 
     def _load_and_display_page(self, idx: int):
         """Render and display a single page."""
