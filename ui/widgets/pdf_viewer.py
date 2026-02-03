@@ -323,34 +323,53 @@ class PDFViewer:
 
     def jump_to_search_result(self, page_idx: int, rect_tuple):
         """Scroll to center on a search result."""
-        if page_idx is None or self.page_height is None or rect_tuple is None:
+        if page_idx is None or rect_tuple is None:
             return
+
+        # Ensure pages are loaded first - this sets page_height
+        if self.page_height is None:
+            self._load_and_display_page(page_idx)
+            if self.page_height is None:
+                return
+
+        # Make sure the target page and surrounding pages are loaded
+        self.update_visible_pages(page_idx)
+
+        # Process events to ensure pages are rendered
+        QApplication.processEvents()
 
         # rect_tuple = (x0, y0, x1, y1, width, height)
         y0 = rect_tuple[1]
-        height = rect_tuple[5]
+        height = (
+            rect_tuple[5] if len(rect_tuple) > 5 else (rect_tuple[3] - rect_tuple[1])
+        )
 
-        scroll_offset = self.scroll_area.height() / 2 - (height * self.zoom) / 2
+        # Calculate target scroll position
+        viewport_height = self.scroll_area.viewport().height()
+        scroll_offset = viewport_height / 2 - (height * self.zoom) / 2
+
         target_y = (
             (page_idx * (self.page_height + self.page_spacing))
             + (y0 * self.zoom)
             - scroll_offset
         )
 
-        # Block signals to prevent scroll handler from firing during setValue
-        self.scroll_area.verticalScrollBar().blockSignals(True)
-        self.scroll_area.verticalScrollBar().setValue(int(target_y))
-        self.scroll_area.verticalScrollBar().blockSignals(False)
+        # Clamp to valid range
+        max_scroll = self.scroll_area.verticalScrollBar().maximum()
+        target_y = max(0, min(int(target_y), max_scroll))
 
-        # Now manually update pages and highlights with delay
+        # Set scroll position
+        self.scroll_area.verticalScrollBar().setValue(int(target_y))
+
+        # Update highlights after a short delay
         QTimer.singleShot(50, lambda: self._finish_search_jump(page_idx))
 
     def _finish_search_jump(self, page_idx: int):
         """Complete the search jump after scroll."""
-        # Load pages around the target
+        # Ensure pages around target are loaded
         self.update_visible_pages(page_idx)
-        # Then update highlights
-        QTimer.singleShot(50, self.update_page_highlights)
+        # Update highlights on all loaded pages
+        self.update_page_highlights()
 
     def update_page_highlights(self):
         """Update search highlights on all loaded pages."""
