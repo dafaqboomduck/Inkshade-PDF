@@ -159,6 +159,9 @@ class PDFViewer:
 
     def refresh_page(self, page_index: int):
         """Refresh a single page (re-render with current settings)."""
+        # Save scroll position to prevent jumping
+        scroll_value = self.scroll_area.verticalScrollBar().value()
+
         if page_index in self.loaded_pages:
             label = self.loaded_pages.pop(page_index)
             self._safely_delete_label(label)
@@ -170,12 +173,21 @@ class PDFViewer:
         QApplication.processEvents()
         self._load_and_display_page(page_index)
 
+        # Restore scroll position
+        self.scroll_area.verticalScrollBar().setValue(scroll_value)
+
     def refresh_all_pages(self):
         """Refresh all currently visible pages."""
+        # Save scroll position to prevent jumping
+        scroll_value = self.scroll_area.verticalScrollBar().value()
         current = self.get_current_page_index()
+
         self.clear_all(keep_dimensions=True)
         QApplication.processEvents()
         self.update_visible_pages(current)
+
+        # Restore scroll position
+        self.scroll_area.verticalScrollBar().setValue(scroll_value)
 
     def container_resize_event(self, event):
         """Repositions page labels when container size changes."""
