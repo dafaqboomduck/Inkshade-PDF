@@ -80,8 +80,16 @@ class PDFViewer:
         except RuntimeError:
             return False
 
-    def _safely_delete_label(self, label: InteractivePageLabel):
-        """Safely disconnect signals and delete a page label."""
+    def _safely_delete_label(
+        self, label: InteractivePageLabel, immediate: bool = False
+    ):
+        """
+        Safely disconnect signals and delete a page label.
+
+        Args:
+            label: The label to delete
+            immediate: If True, delete immediately instead of using deleteLater()
+        """
         if not self._is_widget_valid(label):
             return
 
@@ -96,25 +104,36 @@ class PDFViewer:
             pass
 
         try:
+            # Clear the pixmap to prevent visual artifacts
+            label.clear()
             label.hide()
             label.setParent(None)
-            label.deleteLater()
+
+            if immediate:
+                # Force immediate deletion - useful during zoom operations
+                if sip is not None:
+                    sip.delete(label)
+                else:
+                    label.deleteLater()
+            else:
+                label.deleteLater()
         except RuntimeError:
             pass
 
     # ===== Page Management Methods =====
 
-    def clear_all(self, keep_dimensions: bool = False):
+    def clear_all(self, keep_dimensions: bool = False, immediate_delete: bool = False):
         """
         Clears all loaded pages and resets state.
 
         Args:
             keep_dimensions: If True, don't reset page_height or container height.
+            immediate_delete: If True, delete widgets immediately (for zoom operations).
         """
         # Pop all items to avoid modification during iteration
         while self.loaded_pages:
             idx, label = self.loaded_pages.popitem()
-            self._safely_delete_label(label)
+            self._safely_delete_label(label, immediate=immediate_delete)
 
         # Clear page models
         model_keys = list(self.page_models.keys())
@@ -131,7 +150,9 @@ class PDFViewer:
             self.page_height = None
             self.page_container.setMinimumHeight(0)
 
+        # Force repaint of the container to clear any visual remnants
         self.page_container.update()
+        self.page_container.repaint()
 
     def set_page_height(self, new_height: int):
         """Manually set page height (used during zoom to prevent flash)."""
@@ -164,7 +185,7 @@ class PDFViewer:
 
         if page_index in self.loaded_pages:
             label = self.loaded_pages.pop(page_index)
-            self._safely_delete_label(label)
+            self._safely_delete_label(label, immediate=True)
 
         if page_index in self.page_models:
             self.page_models[page_index].clear_cache()
@@ -182,7 +203,7 @@ class PDFViewer:
         scroll_value = self.scroll_area.verticalScrollBar().value()
         current = self.get_current_page_index()
 
-        self.clear_all(keep_dimensions=True)
+        self.clear_all(keep_dimensions=True, immediate_delete=True)
         QApplication.processEvents()
         self.update_visible_pages(current)
 
