@@ -2,82 +2,11 @@
 Character-level text extraction and selection for PDF pages.
 """
 
-from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import fitz
 
-
-@dataclass
-class CharacterInfo:
-    """Represents a single character with its position and metadata."""
-
-    char: str
-    bbox: Tuple[float, float, float, float]  # x0, y0, x1, y1
-    origin: Tuple[float, float]  # baseline origin point
-    span_index: int
-    line_index: int
-    block_index: int
-    font_name: str
-    font_size: float
-    color: int  # Color as integer (needs conversion)
-
-    # Computed index in the character list (set after extraction)
-    global_index: int = -1
-
-    def contains_point(self, x: float, y: float) -> bool:
-        """Check if point is within character bounds."""
-        return self.bbox[0] <= x <= self.bbox[2] and self.bbox[1] <= y <= self.bbox[3]
-
-
-@dataclass
-class SpanInfo:
-    """A span of text with consistent formatting."""
-
-    characters: List[CharacterInfo] = field(default_factory=list)
-    font_name: str = ""
-    font_size: float = 12.0
-    color: int = 0
-    flags: int = 0  # Font flags (bold, italic, etc.)
-    bbox: Tuple[float, float, float, float] = (0, 0, 0, 0)
-
-    @property
-    def text(self) -> str:
-        return "".join(c.char for c in self.characters)
-
-
-@dataclass
-class LineInfo:
-    """A line of text containing multiple spans."""
-
-    spans: List[SpanInfo] = field(default_factory=list)
-    bbox: Tuple[float, float, float, float] = (0, 0, 0, 0)
-    wmode: int = 0  # Writing mode (0=horizontal, 1=vertical)
-    dir_vector: Tuple[float, float] = (1, 0)  # Text direction
-
-    @property
-    def text(self) -> str:
-        return "".join(span.text for span in self.spans)
-
-    @property
-    def all_characters(self) -> List[CharacterInfo]:
-        chars = []
-        for span in self.spans:
-            chars.extend(span.characters)
-        return chars
-
-
-@dataclass
-class BlockInfo:
-    """A block of text (paragraph or text region)."""
-
-    lines: List[LineInfo] = field(default_factory=list)
-    bbox: Tuple[float, float, float, float] = (0, 0, 0, 0)
-    block_type: int = 0  # 0 = text, 1 = image
-
-    @property
-    def text(self) -> str:
-        return "\n".join(line.text for line in self.lines)
+from .models import BlockInfo, CharacterInfo, LineInfo, SpanInfo
 
 
 class PageTextLayer:
