@@ -765,8 +765,22 @@ class MainWindow(QMainWindow):
         page_idx, rect = self.search_engine.get_current_result()
 
         if page_idx is not None and rect is not None:
-            # Convert rect to tuple BEFORE passing
-            rect_tuple = (rect.x0, rect.y0, rect.x1, rect.y1, rect.width, rect.height)
+            # rect is already a tuple (x0, y0, x1, y1, width, height) from SearchResult
+            # Handle both fitz.Rect objects (legacy) and tuple format
+            if hasattr(rect, "x0"):
+                # Legacy fitz.Rect object
+                rect_tuple = (
+                    rect.x0,
+                    rect.y0,
+                    rect.x1,
+                    rect.y1,
+                    rect.width,
+                    rect.height,
+                )
+            else:
+                # Already a tuple - use directly
+                rect_tuple = rect
+
             self.page_manager.jump_to_search_result(page_idx, rect_tuple)
 
             current_idx = self.search_engine.get_current_index()
