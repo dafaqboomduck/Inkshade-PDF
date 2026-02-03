@@ -1084,7 +1084,7 @@ class MainWindow(QMainWindow):
 
     def save_annotations_to_pdf(self) -> bool:
         """Save annotations to PDF file."""
-        if not self.pdf_reader.doc or not self.annotation_manager.pdf_path:
+        if not self.pdf_reader.doc or not self.current_file_path:
             QMessageBox.warning(self, "No PDF", "No PDF document is currently loaded.")
             return False
 
@@ -1094,24 +1094,28 @@ class MainWindow(QMainWindow):
             )
             return False
 
-        # Get save location
-        default_name = os.path.basename(self.annotation_manager.pdf_path)
-        default_dir = os.path.dirname(self.annotation_manager.pdf_path)
-        default_path = os.path.join(default_dir, default_name)
-
+        # Use current_file_path as the default save location
+        # This will show the original filename and location in the save dialog
         output_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Annotated PDF", default_path, "PDF Files (*.pdf)"
+            self,
+            "Save Annotated PDF",
+            self.current_file_path,  # Full path to current file
+            "PDF Files (*.pdf)",
         )
 
         if not output_path:
             return False
 
+        # Determine the source PDF path
+        source_pdf = self.current_file_path
+
+        # Check if saving to the same file (overwriting)
+        saving_to_same_file = os.path.abspath(output_path) == os.path.abspath(
+            source_pdf
+        )
+
         # Store info before closing
         temp_annotations = self.annotation_manager.annotations.copy()
-        original_pdf_path = self.annotation_manager.pdf_path
-        saving_to_same_file = os.path.abspath(output_path) == os.path.abspath(
-            original_pdf_path
-        )
 
         # Close document before saving
         self.pdf_reader.close_document()
@@ -1130,7 +1134,7 @@ class MainWindow(QMainWindow):
 
         # Create and configure worker thread
         self.export_worker = ExportWorker(
-            original_pdf_path,
+            source_pdf,
             output_path,
             temp_annotations,
             use_temp_file=saving_to_same_file,
@@ -1164,7 +1168,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Save Failed", message)
 
                 # Reopen original file
-                self.load_pdf(original_pdf_path)
+                self.load_pdf(source_pdf)
 
             # Clean up worker
             self.export_worker.deleteLater()
@@ -1183,46 +1187,11 @@ class MainWindow(QMainWindow):
 
     def _refresh_current_page(self):
         """Refresh the current page display."""
-        if self.current_page_index in self.loaded_pages:
-            label = self.loaded_pages[self.current_page_index]
-            label.hide()
-            label.setParent(None)
-            label.deleteLater()
-            del self.loaded_pages[self.current_page_index]
-
-            # Also clear the page model cache
-            if hasattr(self.page_manager, "page_models"):
-                if self.current_page_index in self.page_manager.page_models:
-                    self.page_manager.page_models[self.current_page_index].clear_cache()
-
-            # Process events before loading new page
-            QApplication.processEvents()
-
-            self.page_manager.update_visible_pages(self.current_page_index)
+        self.page_manager.refresh_page(self.current_page_index)
 
     def _refresh_all_visible_pages(self):
         """Refresh all currently visible pages."""
-        # Create a list of indices to avoid modification during iteration
-        indices_to_remove = list(self.loaded_pages.keys())
-
-        # Clear all loaded pages
-        for idx in indices_to_remove:
-            if idx in self.loaded_pages:
-                label = self.loaded_pages[idx]
-                label.hide()
-                label.setParent(None)
-                label.deleteLater()
-                del self.loaded_pages[idx]
-
-        # Clear page model caches
-        if hasattr(self.page_manager, "page_models"):
-            for model in list(self.page_manager.page_models.values()):
-                model.clear_cache()
-
-        # Process events to ensure cleanup is complete
-        QApplication.processEvents()
-
-        self.update_visible_pages()
+        self.page_manager.refresh_all_pages()
 
     def _on_page_changed(self, page_index: int):
         """Handle page change from view controller."""

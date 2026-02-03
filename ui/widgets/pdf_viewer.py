@@ -4,8 +4,14 @@ PDF viewer widget - Updated to use new page architecture.
 
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QApplication
+
+# Import sip for checking deleted widgets
+try:
+    import sip
+except ImportError:
+    sip = None
 
 from controllers.link_handler import LinkNavigationHandler
 from core.page import PageModel
@@ -17,14 +23,6 @@ from ui.widgets.page_label import InteractivePageLabel
 class PDFViewer:
     """
     Manages PDF page display with character-level selection and links.
-
-    Features:
-    - Lazy page loading with buffer
-    - Character-level text selection
-    - Clickable links
-    - Search highlighting
-    - Annotation display
-    - Drawing mode support
     """
 
     def __init__(
@@ -59,11 +57,52 @@ class PDFViewer:
         self.link_handler.navigation_requested.connect(self._on_navigation_requested)
 
         # Page loading buffer
-        self.page_buffer = 7  # Load pages within this range of current
+        self.page_buffer = 7
 
         # Setup container
         self.page_container.setMinimumHeight(0)
         self.page_container.resizeEvent = self.container_resize_event
+
+    # ===== Widget Safety Methods =====
+
+    def _is_widget_valid(self, widget) -> bool:
+        """Check if a Qt widget is still valid (not deleted)."""
+        if widget is None:
+            return False
+        if sip is not None:
+            try:
+                return not sip.isdeleted(widget)
+            except Exception:
+                return False
+        try:
+            _ = widget.isVisible()
+            return True
+        except RuntimeError:
+            return False
+
+    def _safely_delete_label(self, label: InteractivePageLabel):
+        """Safely disconnect signals and delete a page label."""
+        if not self._is_widget_valid(label):
+            return
+
+        try:
+            label.link_clicked.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+
+        try:
+            label.selection_changed.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+
+        try:
+            label.hide()
+            label.setParent(None)
+            label.deleteLater()
+        except RuntimeError:
+            pass
+
+    # ===== Page Management Methods =====
 
     def clear_all(self, keep_dimensions: bool = False):
         """
@@ -71,25 +110,15 @@ class PDFViewer:
 
         Args:
             keep_dimensions: If True, don't reset page_height or container height.
-                            Used during zoom/theme changes to prevent scroll jump.
         """
-        # Create a list copy of keys to avoid dictionary modification during iteration
-        page_indices = list(self.loaded_pages.keys())
-
-        # Clear page labels - hide and delete immediately
-        for idx in page_indices:
-            if idx in self.loaded_pages:
-                label = self.loaded_pages[idx]
-                label.hide()
-                label.setParent(None)
-                label.deleteLater()
-
-        # Clear the dictionary after iteration is complete
-        self.loaded_pages.clear()
+        # Pop all items to avoid modification during iteration
+        while self.loaded_pages:
+            idx, label = self.loaded_pages.popitem()
+            self._safely_delete_label(label)
 
         # Clear page models
-        model_indices = list(self.page_models.keys())
-        for idx in model_indices:
+        model_keys = list(self.page_models.keys())
+        for idx in model_keys:
             if idx in self.page_models:
                 self.page_models[idx].unload()
         self.page_models.clear()
@@ -102,94 +131,10 @@ class PDFViewer:
             self.page_height = None
             self.page_container.setMinimumHeight(0)
 
-        # Force immediate update of the container
         self.page_container.update()
 
-    def set_zoom(self, new_zoom: float):
-        """Updates the zoom factor."""
-        self.zoom = new_zoom
-
-        # Clear pixmap caches in page models
-        for model in list(self.page_models.values()):
-            model.clear_cache()
-
-    def set_dark_mode(self, dark_mode: bool):
-        """Updates dark mode setting."""
-        self.dark_mode = dark_mode
-
-        # Clear pixmap caches
-        for model in list(self.page_models.values()):
-            model.clear_cache()
-
-    def container_resize_event(self, event):
-        """Repositions page labels when container size changes."""
-        container_width = self.page_container.width()
-
-        for idx, label in list(self.loaded_pages.items()):
-            if label.pixmap():
-                pix_width = label.pixmap().width()
-                x = (container_width - pix_width) // 2
-                y = idx * (self.page_height + self.page_spacing)
-                label.move(x, y)
-
-        event.accept()
-
-    def update_visible_pages(self, current_page_index: int):
-        """
-        Load and display pages near the current page.
-
-        Args:
-            current_page_index: The currently focused page index
-        """
-        if self.pdf_reader_core.doc is None or self.pdf_reader_core.total_pages == 0:
-            return
-
-        # Ensure we have at least one page loaded to get dimensions
-        if self.page_height is None:
-            if current_page_index not in self.loaded_pages:
-                self._load_and_display_page(current_page_index)
-                if self.page_height is None:
-                    return
-
-        total_pages = self.pdf_reader_core.total_pages
-        start_index = max(0, current_page_index - self.page_buffer)
-        end_index = min(total_pages - 1, current_page_index + self.page_buffer)
-
-        # Unload pages outside the buffer - use list() to avoid modification during iteration
-        pages_to_unload = [
-            idx
-            for idx in list(self.loaded_pages.keys())
-            if idx < start_index or idx > end_index
-        ]
-
-        for idx in pages_to_unload:
-            if idx in self.loaded_pages:
-                label = self.loaded_pages[idx]
-                label.hide()
-                label.setParent(None)
-                label.deleteLater()
-                del self.loaded_pages[idx]
-
-            # Also unload page model to free memory
-            if idx in self.page_models:
-                self.page_models[idx].unload()
-                del self.page_models[idx]
-
-        # Load missing pages
-        for idx in range(start_index, end_index + 1):
-            if idx not in self.loaded_pages:
-                self._load_and_display_page(idx)
-
-        # Update selection manager with current page models
-        self.selection_manager.set_page_models(self.page_models)
-
     def set_page_height(self, new_height: int):
-        """
-        Manually set page height (used during zoom to prevent flash).
-
-        Args:
-            new_height: New page height in pixels
-        """
+        """Manually set page height (used during zoom to prevent flash)."""
         self.page_height = new_height
         if self.pdf_reader_core.total_pages > 0:
             total_height = (
@@ -200,15 +145,95 @@ class PDFViewer:
             self.page_container.setMinimumHeight(total_height)
             self.main_window.page_height = self.page_height
 
+    def set_zoom(self, new_zoom: float):
+        """Updates the zoom factor."""
+        self.zoom = new_zoom
+        for model in list(self.page_models.values()):
+            model.clear_cache()
+
+    def set_dark_mode(self, dark_mode: bool):
+        """Updates dark mode setting."""
+        self.dark_mode = dark_mode
+        for model in list(self.page_models.values()):
+            model.clear_cache()
+
+    def refresh_page(self, page_index: int):
+        """Refresh a single page (re-render with current settings)."""
+        if page_index in self.loaded_pages:
+            label = self.loaded_pages.pop(page_index)
+            self._safely_delete_label(label)
+
+        if page_index in self.page_models:
+            self.page_models[page_index].clear_cache()
+            del self.page_models[page_index]
+
+        QApplication.processEvents()
+        self._load_and_display_page(page_index)
+
+    def refresh_all_pages(self):
+        """Refresh all currently visible pages."""
+        current = self.get_current_page_index()
+        self.clear_all(keep_dimensions=True)
+        QApplication.processEvents()
+        self.update_visible_pages(current)
+
+    def container_resize_event(self, event):
+        """Repositions page labels when container size changes."""
+        container_width = self.page_container.width()
+
+        for idx, label in list(self.loaded_pages.items()):
+            if self._is_widget_valid(label) and label.pixmap():
+                pix_width = label.pixmap().width()
+                x = (container_width - pix_width) // 2
+                y = idx * (self.page_height + self.page_spacing)
+                label.move(x, y)
+
+        event.accept()
+
+    def update_visible_pages(self, current_page_index: int):
+        """Load and display pages near the current page."""
+        if self.pdf_reader_core.doc is None or self.pdf_reader_core.total_pages == 0:
+            return
+
+        if self.page_height is None:
+            if current_page_index not in self.loaded_pages:
+                self._load_and_display_page(current_page_index)
+                if self.page_height is None:
+                    return
+
+        total_pages = self.pdf_reader_core.total_pages
+        start_index = max(0, current_page_index - self.page_buffer)
+        end_index = min(total_pages - 1, current_page_index + self.page_buffer)
+
+        # Find and unload pages outside buffer
+        pages_to_unload = [
+            idx
+            for idx in list(self.loaded_pages.keys())
+            if idx < start_index or idx > end_index
+        ]
+
+        for idx in pages_to_unload:
+            if idx in self.loaded_pages:
+                label = self.loaded_pages.pop(idx)
+                self._safely_delete_label(label)
+
+            if idx in self.page_models:
+                self.page_models[idx].unload()
+                del self.page_models[idx]
+
+        # Load missing pages
+        for idx in range(start_index, end_index + 1):
+            if idx not in self.loaded_pages:
+                self._load_and_display_page(idx)
+
+        self.selection_manager.set_page_models(self.page_models)
+
     def _load_and_display_page(self, idx: int):
         """Render and display a single page."""
-        # Get or create PageModel
         if idx not in self.page_models:
             self.page_models[idx] = PageModel(self.pdf_reader_core.doc, idx)
 
         page_model = self.page_models[idx]
-
-        # Let Qt process events to prevent UI freeze/crash
         QApplication.processEvents()
 
         # Get search highlights
@@ -227,8 +252,6 @@ class PDFViewer:
                     rects_on_page.append(r)
 
         annotations_on_page = self.annotation_manager.get_annotations_for_page(idx)
-
-        # Let Qt breathe again before creating widget
         QApplication.processEvents()
 
         label = InteractivePageLabel(
@@ -238,16 +261,12 @@ class PDFViewer:
             parent=self.page_container,
         )
 
-        # Configure label
         label.set_dark_mode(self.dark_mode)
         label.set_annotations(annotations_on_page)
         label.link_handler = self.link_handler
-
-        # Set search highlights
         label.search_highlights = rects_on_page
         label.current_search_highlight_index = current_idx_on_page
 
-        # Set drawing mode if active
         if (
             hasattr(self.main_window, "drawing_toolbar")
             and self.main_window.drawing_toolbar.is_in_drawing_mode()
@@ -256,13 +275,10 @@ class PDFViewer:
             tool, color, stroke_width, filled = tool_settings
             label.set_drawing_mode(True, tool, color, stroke_width, filled)
 
-        # Connect signals
         label.link_clicked.connect(self._on_link_clicked)
         label.selection_changed.connect(self._on_selection_changed)
-
         label.setAlignment(Qt.AlignCenter)
 
-        # Set page height if first page
         if self.page_height is None:
             pixmap = label.pixmap()
             if pixmap:
@@ -275,7 +291,6 @@ class PDFViewer:
                 self.page_container.setMinimumHeight(total_height)
                 self.main_window.page_height = self.page_height
 
-        # Position the label
         container_width = self.page_container.width()
         pixmap = label.pixmap()
         if pixmap:
@@ -286,10 +301,11 @@ class PDFViewer:
         label.show()
         self.loaded_pages[idx] = label
 
-        # Force update
         label.update()
         self.page_container.update()
         self.scroll_area.viewport().update()
+
+    # ===== Navigation Methods =====
 
     def get_current_page_index(self) -> int:
         """Calculate the index of the page centered in viewport."""
@@ -320,13 +336,7 @@ class PDFViewer:
         return current_page_index, offset_in_page
 
     def jump_to_page(self, page_num: int, y_offset: float = 0.0):
-        """
-        Scroll to a specific page position.
-
-        Args:
-            page_num: 1-based page number
-            y_offset: Y-coordinate in PDF points
-        """
+        """Scroll to a specific page position."""
         if self.page_height is None or self.page_height == 0:
             return
 
@@ -359,8 +369,6 @@ class PDFViewer:
             target_y = page_start_y
 
         self.scroll_area.verticalScrollBar().setValue(int(target_y))
-
-        # Update visible pages after scrolling
         QTimer.singleShot(50, lambda: self.main_window.update_visible_pages())
 
     def jump_to_search_result(self, page_idx: int, rect_tuple):
@@ -368,25 +376,19 @@ class PDFViewer:
         if page_idx is None or rect_tuple is None:
             return
 
-        # Ensure pages are loaded first - this sets page_height
         if self.page_height is None:
             self._load_and_display_page(page_idx)
             if self.page_height is None:
                 return
 
-        # Make sure the target page and surrounding pages are loaded
         self.update_visible_pages(page_idx)
-
-        # Process events to ensure pages are rendered
         QApplication.processEvents()
 
-        # rect_tuple = (x0, y0, x1, y1, width, height)
         y0 = rect_tuple[1]
         height = (
             rect_tuple[5] if len(rect_tuple) > 5 else (rect_tuple[3] - rect_tuple[1])
         )
 
-        # Calculate target scroll position
         viewport_height = self.scroll_area.viewport().height()
         scroll_offset = viewport_height / 2 - (height * self.zoom) / 2
 
@@ -396,27 +398,24 @@ class PDFViewer:
             - scroll_offset
         )
 
-        # Clamp to valid range
         max_scroll = self.scroll_area.verticalScrollBar().maximum()
         target_y = max(0, min(int(target_y), max_scroll))
 
-        # Set scroll position
         self.scroll_area.verticalScrollBar().setValue(int(target_y))
-
-        # Update highlights after a short delay
         QTimer.singleShot(50, lambda: self._finish_search_jump(page_idx))
 
     def _finish_search_jump(self, page_idx: int):
         """Complete the search jump after scroll."""
-        # Ensure pages around target are loaded
         self.update_visible_pages(page_idx)
-        # Update highlights on all loaded pages
         self.update_page_highlights()
 
     def update_page_highlights(self):
         """Update search highlights on all loaded pages."""
         try:
             for idx, label in list(self.loaded_pages.items()):
+                if not self._is_widget_valid(label):
+                    continue
+
                 rects_on_page = []
                 current_idx_on_page = -1
 
@@ -426,21 +425,25 @@ class PDFViewer:
                         SearchHighlight.get_highlights_for_page(search_engine, idx)
                     )
 
-                    # Convert fitz.Rect to tuples to avoid C++ object issues
                     for r in raw_rects:
                         if hasattr(r, "x0"):
                             rects_on_page.append((r.x0, r.y0, r.x1, r.y1))
                         else:
                             rects_on_page.append(r)
 
-                label.search_highlights = rects_on_page
-                label.current_search_highlight_index = current_idx_on_page
-                label.update()
+                try:
+                    label.search_highlights = rects_on_page
+                    label.current_search_highlight_index = current_idx_on_page
+                    label.update()
+                except RuntimeError:
+                    pass
         except Exception as e:
             print(f"HIGHLIGHT ERROR: {e}")
             import traceback
 
             traceback.print_exc()
+
+    # ===== Selection Methods =====
 
     def copy_selected_text(self) -> str:
         """Get all selected text for copying."""
@@ -450,19 +453,27 @@ class PDFViewer:
         """Clear text selection."""
         self.selection_manager.clear()
         for label in list(self.loaded_pages.values()):
-            label.update()
+            if self._is_widget_valid(label):
+                try:
+                    label.update()
+                except RuntimeError:
+                    pass
 
     def select_all_on_page(self, page_index: int):
         """Select all text on a specific page."""
         self.selection_manager.select_all(page_index)
         if page_index in self.loaded_pages:
-            self.loaded_pages[page_index].update()
+            label = self.loaded_pages[page_index]
+            if self._is_widget_valid(label):
+                try:
+                    label.update()
+                except RuntimeError:
+                    pass
 
-    # Signal handlers
+    # ===== Signal Handlers =====
 
     def _on_link_clicked(self, link):
         """Handle link click from page label."""
-        # Link handler processes navigation automatically
         pass
 
     def _on_navigation_requested(self, page_num: int, y_offset: float):
@@ -471,6 +482,9 @@ class PDFViewer:
 
     def _on_selection_changed(self):
         """Handle selection change from page label."""
-        # Update all visible pages to show selection
         for label in list(self.loaded_pages.values()):
-            label.update()
+            if self._is_widget_valid(label):
+                try:
+                    label.update()
+                except RuntimeError:
+                    pass
