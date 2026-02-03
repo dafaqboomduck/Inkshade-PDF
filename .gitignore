@@ -9,3 +9,5 @@ versionfile.txt
 pyinstaller_versionfile.py
 
 .flatpak-builder/
+repo/
+*.flatpak
