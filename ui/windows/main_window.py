@@ -647,13 +647,18 @@ class MainWindow(QMainWindow):
                 new_page_height = int(old_page_height * zoom_ratio)
                 new_offset = int(offset_in_page * zoom_ratio)
 
-                # Clear pages but keep dimensions temporarily
-                self.page_manager.clear_all(keep_dimensions=True)
+                # Clear pages with IMMEDIATE deletion to prevent artifacts
+                self.page_manager.clear_all(keep_dimensions=True, immediate_delete=True)
 
                 # Pre-set the new page height to prevent scroll jump
                 self.page_manager.set_page_height(new_page_height)
 
                 # Process events to ensure old widgets are fully removed
+                QApplication.processEvents()
+
+                # Force repaint of container to clear any remnants
+                self.page_container.repaint()
+                self.scroll_area.viewport().repaint()
                 QApplication.processEvents()
 
                 # Pre-set scroll position BEFORE loading pages
@@ -673,7 +678,7 @@ class MainWindow(QMainWindow):
 
             elif self.pdf_reader.doc:
                 # First load or no previous height - use standard approach
-                self.page_manager.clear_all()
+                self.page_manager.clear_all(immediate_delete=True)
                 QApplication.processEvents()
                 self.update_visible_pages(desired_page=target_page)
                 QApplication.processEvents()
@@ -733,10 +738,15 @@ class MainWindow(QMainWindow):
             target_page = current_page_index
             saved_page_height = self.page_height
 
-            # Clear pages but keep dimensions (theme doesn't change page size)
-            self.page_manager.clear_all(keep_dimensions=True)
+            # Clear pages with immediate deletion (theme doesn't change page size)
+            self.page_manager.clear_all(keep_dimensions=True, immediate_delete=True)
 
             # Process events to ensure old widgets are fully removed
+            QApplication.processEvents()
+
+            # Force repaint
+            self.page_container.repaint()
+            self.scroll_area.viewport().repaint()
             QApplication.processEvents()
 
             # Pre-set scroll position BEFORE loading pages
