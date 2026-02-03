@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QEvent, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QKeyEvent
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
@@ -13,9 +13,13 @@ from PyQt5.QtWidgets import (
 
 
 class SearchLineEdit(QLineEdit):
-    """Custom QLineEdit that handles Tab/Shift+Tab for search navigation."""
+    """
+    Custom QLineEdit that intercepts Tab/Shift+Tab for search navigation.
 
-    # Signals for navigation
+    Note: Tab MUST be handled at the widget level because Qt intercepts it
+    for focus navigation before it reaches keyPressEvent or the main window.
+    """
+
     navigate_next = pyqtSignal()
     navigate_prev = pyqtSignal()
 
@@ -23,20 +27,16 @@ class SearchLineEdit(QLineEdit):
         super().__init__(parent)
 
     def event(self, event: QEvent) -> bool:
-        """
-        Override event() to intercept Tab before Qt's focus handling.
-        This is called before keyPressEvent for special keys like Tab.
-        """
+        """Intercept Tab before Qt's focus handling."""
         if event.type() == QEvent.KeyPress:
-            key_event = event
+            key = event.key()
 
-            if key_event.key() == Qt.Key_Tab:
+            if key == Qt.Key_Tab:
                 self.navigate_next.emit()
-                return True  # Event handled, don't propagate
-
-            elif key_event.key() == Qt.Key_Backtab:
+                return True
+            elif key == Qt.Key_Backtab:
                 self.navigate_prev.emit()
-                return True  # Event handled, don't propagate
+                return True
 
         return super().event(event)
 
@@ -44,7 +44,6 @@ class SearchLineEdit(QLineEdit):
 class SearchBar(QFrame):
     """Compact modern search bar that appears on the right side."""
 
-    # Signals
     search_requested = pyqtSignal(str)
     next_result_requested = pyqtSignal()
     prev_result_requested = pyqtSignal()
@@ -53,13 +52,12 @@ class SearchBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("SearchBar")
-        self._last_search_term = ""  # Track last searched term
-        self._has_results = False  # Track if we have search results
+        self._last_search_term = ""
+        self._has_results = False
         self.setup_ui()
         self.hide()
 
     def setup_ui(self):
-        # Set fixed width and let height expand naturally
         self.setFixedWidth(300)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
 
@@ -67,26 +65,25 @@ class SearchBar(QFrame):
         main_layout.setContentsMargins(12, 10, 12, 10)
         main_layout.setSpacing(8)
 
-        # Header with close button
+        # Header
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
 
         header_label = QLabel("Search", self)
         header_label.setStyleSheet("font-weight: bold; color: #8899AA;")
         header_layout.addWidget(header_label)
-
         header_layout.addStretch()
 
         self.close_button = QToolButton(self)
         self.close_button.setText("✕")
-        self.close_button.setToolTip("Close search (Esc)")
+        self.close_button.setToolTip("Close (Esc)")
         self.close_button.setFixedSize(24, 24)
         self.close_button.clicked.connect(self._on_close)
         header_layout.addWidget(self.close_button)
 
         main_layout.addLayout(header_layout)
 
-        # Search input - use custom line edit for Tab handling
+        # Search input
         self.search_input = SearchLineEdit(self)
         self.search_input.setPlaceholderText("Search in document...")
         self.search_input.setFixedHeight(32)
@@ -96,20 +93,20 @@ class SearchBar(QFrame):
         self.search_input.navigate_prev.connect(self._on_navigate_prev)
         main_layout.addWidget(self.search_input)
 
-        # Navigation and status
+        # Navigation
         nav_layout = QHBoxLayout()
         nav_layout.setSpacing(6)
 
         self.prev_button = QToolButton(self)
         self.prev_button.setText("◀")
-        self.prev_button.setToolTip("Previous (Shift+Tab)")
+        self.prev_button.setToolTip("Previous (Shift+Tab, Shift+F3)")
         self.prev_button.setFixedSize(28, 28)
         self.prev_button.clicked.connect(self._on_navigate_prev)
         nav_layout.addWidget(self.prev_button)
 
         self.next_button = QToolButton(self)
         self.next_button.setText("▶")
-        self.next_button.setToolTip("Next (Tab or Enter)")
+        self.next_button.setToolTip("Next (Tab, Enter, F3)")
         self.next_button.setFixedSize(28, 28)
         self.next_button.clicked.connect(self._on_navigate_next)
         nav_layout.addWidget(self.next_button)
@@ -120,107 +117,86 @@ class SearchBar(QFrame):
         nav_layout.addStretch()
 
         main_layout.addLayout(nav_layout)
-
-        # Let the layout calculate natural size
         self.adjustSize()
 
-        # Add shadow effect for better visibility
+        # Shadow
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(20)
         shadow.setColor(QColor(0, 0, 0, 80))
         shadow.setOffset(0, 2)
         self.setGraphicsEffect(shadow)
 
-    def keyPressEvent(self, event: QKeyEvent):
-        """Handle Escape to close."""
-        if event.key() == Qt.Key_Escape:
-            self._on_close()
-            event.accept()
-        else:
-            super().keyPressEvent(event)
-
     def _on_enter_pressed(self):
-        """Handle Enter key press."""
+        """Handle Enter: search if new term, else navigate next."""
         search_term = self.search_input.text().strip()
-
         if not search_term:
             return
 
-        # If the search term changed or no results yet, run a new search
         if search_term != self._last_search_term or not self._has_results:
             self._last_search_term = search_term
             self._has_results = False
             self.search_requested.emit(search_term)
         else:
-            # Same search term and we have results - go to next
             self.next_result_requested.emit()
 
     def _on_navigate_next(self):
-        """Handle next navigation request."""
+        """Navigate to next result, or search first if needed."""
         search_term = self.search_input.text().strip()
-
         if not search_term:
             return
 
-        # If no search performed yet, search first
         if search_term != self._last_search_term or not self._has_results:
             self._last_search_term = search_term
             self._has_results = False
             self.search_requested.emit(search_term)
         else:
-            # Navigate to next result
             self.next_result_requested.emit()
 
     def _on_navigate_prev(self):
-        """Handle previous navigation request."""
+        """Navigate to previous result, or search first if needed."""
         search_term = self.search_input.text().strip()
-
         if not search_term:
             return
 
-        # If no search performed yet, search first
         if search_term != self._last_search_term or not self._has_results:
             self._last_search_term = search_term
             self._has_results = False
             self.search_requested.emit(search_term)
         else:
-            # Navigate to previous result
             self.prev_result_requested.emit()
 
     def _on_text_changed(self, text: str):
-        """Handle text changes - reset search state if text differs."""
+        """Reset state when search text changes."""
         if text.strip() != self._last_search_term:
-            # Text changed, next Enter/Tab should search
             self._has_results = False
 
     def _on_close(self):
-        """Handle close request."""
+        """Close the search bar."""
         self.close_requested.emit()
         self.hide()
 
     def show_bar(self):
-        """Show the search bar and focus on input."""
+        """Show and focus the search bar."""
         self.show()
         self.raise_()
         self.search_input.setFocus()
         self.search_input.selectAll()
 
     def set_status(self, text: str):
-        """Update the status label."""
+        """Update status and track if we have results."""
         self.status_label.setText(text)
-        # If status shows results (e.g., "1 of 5"), mark that we have results
         if text and " of " in text:
             self._has_results = True
-        elif text == "0 results" or text == "Searching...":
+        elif text in ("0 results", "Searching..."):
             self._has_results = False
 
     def clear_search(self):
-        """Clear the search input and status."""
+        """Clear search state."""
         self.search_input.clear()
         self.status_label.setText("")
         self._last_search_term = ""
         self._has_results = False
 
     def get_search_text(self) -> str:
-        """Get the current search text."""
+        """Get current search text."""
         return self.search_input.text()
