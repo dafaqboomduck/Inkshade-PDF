@@ -630,36 +630,61 @@ class MainWindow(QMainWindow):
     def _handle_zoom_change(self, new_zoom_percent: int):
         """Handle zoom level change."""
         try:
-            # Save current position
+            # Save current position BEFORE any changes
             current_page_index, offset_in_page = self.get_current_page_info()
+            target_page = current_page_index
+            old_zoom = self.zoom
+            old_page_height = self.page_height
 
             # Update zoom
             self.zoom = (new_zoom_percent / 100.0) * self.base_zoom
             self.page_manager.set_zoom(self.zoom)
             self.view_controller.set_zoom(new_zoom_percent)
 
-            if self.pdf_reader.doc:
-                # Clear and reload pages
-                self.page_manager.clear_all()
+            if self.pdf_reader.doc and old_page_height:
+                # Calculate zoom ratio and new dimensions
+                zoom_ratio = self.zoom / old_zoom if old_zoom > 0 else 1.0
+                new_page_height = int(old_page_height * zoom_ratio)
+                new_offset = int(offset_in_page * zoom_ratio)
+
+                # Clear pages but keep dimensions temporarily
+                self.page_manager.clear_all(keep_dimensions=True)
+
+                # Pre-set the new page height to prevent scroll jump
+                self.page_manager.set_page_height(new_page_height)
 
                 # Process events to ensure old widgets are fully removed
                 QApplication.processEvents()
 
-                self.update_visible_pages()
+                # Pre-set scroll position BEFORE loading pages
+                if new_page_height:
+                    target_y = (
+                        target_page * (new_page_height + self.page_spacing)
+                    ) + new_offset
+                    self.scroll_area.verticalScrollBar().setValue(int(target_y))
+
+                # Load pages around the TARGET page
+                self.update_visible_pages(desired_page=target_page)
 
                 # Process events to update layout
                 QApplication.processEvents()
                 self.page_container.updateGeometry()
                 self.scroll_area.updateGeometry()
+
+            elif self.pdf_reader.doc:
+                # First load or no previous height - use standard approach
+                self.page_manager.clear_all()
+                QApplication.processEvents()
+                self.update_visible_pages(desired_page=target_page)
                 QApplication.processEvents()
 
-                # Restore position
-                QTimer.singleShot(
-                    10,
-                    lambda: self._restore_scroll_position(
-                        current_page_index, offset_in_page
-                    ),
-                )
+                if self.page_height:
+                    QTimer.singleShot(
+                        10,
+                        lambda: self._restore_scroll_position(
+                            target_page, offset_in_page
+                        ),
+                    )
 
         except (ValueError, IndexError):
             current_zoom_percent = int((self.zoom / self.base_zoom) * 100)
@@ -703,18 +728,32 @@ class MainWindow(QMainWindow):
 
         # Refresh pages if document is loaded
         if self.pdf_reader.doc:
+            # Save position BEFORE any changes
             current_page_index, offset_in_page = self.get_current_page_info()
-            self.page_manager.clear_all()
+            target_page = current_page_index
+            saved_page_height = self.page_height
+
+            # Clear pages but keep dimensions (theme doesn't change page size)
+            self.page_manager.clear_all(keep_dimensions=True)
 
             # Process events to ensure old widgets are fully removed
             QApplication.processEvents()
 
-            self.update_visible_pages(desired_page=current_page_index)
+            # Pre-set scroll position BEFORE loading pages
+            if saved_page_height:
+                target_y = (
+                    target_page * (saved_page_height + self.page_spacing)
+                ) + offset_in_page
+                self.scroll_area.verticalScrollBar().setValue(int(target_y))
 
-            # Restore position
-            QTimer.singleShot(
-                0, lambda: self._restore_and_repaint(current_page_index, offset_in_page)
-            )
+            # Load pages around the TARGET page
+            self.update_visible_pages(desired_page=target_page)
+
+            # Force repaint
+            QApplication.processEvents()
+            if target_page in self.loaded_pages:
+                self.loaded_pages[target_page].repaint()
+            self.page_container.repaint()
 
     def _restore_and_repaint(self, current_page_index: int, offset_in_page: int):
         """Restore scroll position and repaint after theme change."""
