@@ -1,522 +1,525 @@
-from PyQt5.QtCore import Qt, QRect, QRectF, pyqtSignal
-from PyQt5.QtGui import QPainter, QColor, QBrush, QImage, QCursor
-from PyQt5.QtWidgets import QLabel, QMenu, QMessageBox
-from controllers.input_handler import UserInputHandler
-from core.annotations import AnnotationType
+"""
+Interactive page label with character-level selection and link support.
+"""
 
-# Custom widget to display a page image and handle text selection
-class ClickablePageLabel(QLabel):
-    # Signals for annotation operations
-    annotation_selected = pyqtSignal(object)  # Emits selected annotation
-    annotation_delete_requested = pyqtSignal(object)  # Emits annotation to delete
-    
-    def __init__(self, parent=None):
+from typing import TYPE_CHECKING, List, Optional, Tuple
+
+from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import (
+    QBrush,
+    QColor,
+    QCursor,
+    QMouseEvent,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
+from PyQt5.QtWidgets import QApplication, QLabel, QToolTip
+
+from core.annotations import AnnotationType
+from core.page.link_layer import LinkInfo, LinkType
+from core.page.page_model import InteractionType, PageModel
+from core.page.text_layer import CharacterInfo
+from core.selection.selection_manager import SelectionManager
+
+if TYPE_CHECKING:
+    from controllers.link_handler import LinkNavigationHandler
+
+
+class InteractivePageLabel(QLabel):
+    """
+    Page widget with character-level selection and clickable links.
+
+    Features:
+    - Character-level text selection
+    - Double-click to select word
+    - Triple-click to select line
+    - Clickable links with hover effects
+    - Link tooltips
+    - Drawing mode support
+    - Annotation display
+    """
+
+    # Signals
+    link_clicked = pyqtSignal(object)  # LinkInfo
+    link_hovered = pyqtSignal(object)  # LinkInfo or None
+    selection_changed = pyqtSignal()
+    character_clicked = pyqtSignal(int, object)  # page_index, CharacterInfo
+
+    def __init__(
+        self,
+        page_model: PageModel,
+        zoom: float,
+        selection_manager: SelectionManager,
+        parent=None,
+    ):
         super().__init__(parent)
-        self.text_data = None
-        self.word_data = None
-        self.zoom_level = 1.0
-        self.start_pos = None
-        self.end_pos = None
-        self.selection_rects = []
+
+        self.page_model = page_model
+        self.zoom = zoom
+        self.selection_manager = selection_manager
         self.dark_mode = False
-        self.setMouseTracking(True)
-        self.selected_words = set()
-        self.line_word_map = {}
-        self._selection_at_start = set()
-        
+
+        # Interaction state
+        self._is_selecting = False
+        self._hovered_link: Optional[LinkInfo] = None
+        self._click_count = 0
+        self._click_timer = QTimer()
+        self._click_timer.setSingleShot(True)
+        self._click_timer.timeout.connect(self._reset_click_count)
+        self._last_click_pos: Optional[QPointF] = None
+
+        # Drawing mode state
+        self._is_drawing_mode = False
+        self._is_drawing = False
+        self._drawing_points: List[Tuple[float, float]] = []
+        self._drawing_tool = AnnotationType.FREEHAND
+        self._drawing_color = (255, 0, 0)
+        self._drawing_stroke_width = 2.0
+        self._drawing_filled = False
+
+        # Annotations for this page
+        self.annotations = []
+
+        # Search highlights
         self.search_highlights = []
         self.current_search_highlight_index = -1
-        
-        # Store annotations for this page
-        self.annotations = []
-        self.selected_annotation = None
-        self.hovered_annotation = None
 
-        self.input_handler = UserInputHandler(parent)
-        
-        # NEW: Drawing state
-        self.is_drawing_mode = False
-        self.current_drawing_tool = AnnotationType.FREEHAND
-        self.current_drawing_color = (255, 0, 0)
-        self.current_drawing_stroke_width = 2.0
-        self.current_drawing_filled = False
-        self.current_drawing_points = []  # Points for current shape being drawn
-        self.is_currently_drawing = False  # Whether user is actively drawing right now
-        
-        # Context menu for annotations
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.show_context_menu)
-        
-        # Enable keyboard focus
+        # Link handler reference
+        self.link_handler: Optional["LinkNavigationHandler"] = None
+
+        # Setup
+        self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
+        self._render()
 
-    def set_page_data(self, pixmap, text_data, word_data, zoom_level, dark_mode, search_highlights=None, current_highlight_index=-1, annotations=None):
+    def _render(self):
+        """Render the page pixmap."""
+        pixmap = self.page_model.render_pixmap(self.zoom, self.dark_mode)
         self.setPixmap(pixmap)
-        self.text_data = text_data
-        self.word_data = word_data
-        self.zoom_level = zoom_level
-        self.dark_mode = dark_mode
-        self.selection_rects = []
-        self.selected_words = set()
-        
-        self.search_highlights = search_highlights if search_highlights else []
-        self.current_search_highlight_index = current_highlight_index
+        self.setFixedSize(pixmap.size())
 
-        self.annotations = annotations if annotations else []
-        self.selected_annotation = None
-        self.hovered_annotation = None
+    def set_zoom(self, zoom: float):
+        """Update zoom level and re-render."""
+        if self.zoom != zoom:
+            self.zoom = zoom
+            self._render()
+            self.update()
 
-        self._build_line_word_map()
+    def set_dark_mode(self, dark_mode: bool):
+        """Update dark mode and re-render."""
+        if self.dark_mode != dark_mode:
+            self.dark_mode = dark_mode
+            self._render()
+            self.update()
+
+    def set_annotations(self, annotations: list):
+        """Set annotations to display on this page."""
+        self.annotations = annotations
         self.update()
 
-    def set_search_highlights(self, highlights, current_index=-1):
-        self.search_highlights = highlights
-        self.current_search_highlight_index = current_index
-        self.update()
+    def set_drawing_mode(
+        self, enabled: bool, tool=None, color=None, stroke_width=None, filled=None
+    ):
+        """Enable or disable drawing mode."""
+        self._is_drawing_mode = enabled
+        if tool is not None:
+            self._drawing_tool = tool
+        if color is not None:
+            self._drawing_color = color
+        if stroke_width is not None:
+            self._drawing_stroke_width = stroke_width
+        if filled is not None:
+            self._drawing_filled = filled
 
-    def _build_line_word_map(self):
-        self.line_word_map = {}
-        if self.word_data:
-            for word_info in self.word_data:
-                block_no, line_no = word_info[5], word_info[6]
-                key = (block_no, line_no)
-                if key not in self.line_word_map:
-                    self.line_word_map[key] = []
-                self.line_word_map[key].append(word_info)
+        self.setCursor(Qt.CrossCursor if enabled else Qt.ArrowCursor)
 
-    def show_context_menu(self, position):
-        """Show context menu for annotation operations."""
-        # Check if there's an annotation at this position
-        main_window = self.get_main_window()
-        if not main_window:
-            return
-            
-        # Find which page this label represents
-        page_index = self.get_page_index()
-        if page_index is None:
-            return
-        
-        # Check for annotation at click position
-        annotation = main_window.annotation_manager.get_annotation_at_point(
-            page_index, position.x(), position.y(), self.zoom_level
-        )
-        
-        if annotation:
-            menu = QMenu(self)
-            
-            # Add delete action
-            delete_action = menu.addAction("Delete Annotation")
-            delete_action.triggered.connect(lambda: self.delete_annotation(annotation))
-            
-            # Add edit color action for highlights
-            if annotation.annotation_type == AnnotationType.HIGHLIGHT:
-                edit_color_action = menu.addAction("Change Color")
-                edit_color_action.triggered.connect(lambda: self.edit_annotation_color(annotation))
-            
-            menu.exec_(self.mapToGlobal(position))
+    def _to_pdf_coords(self, pos) -> Tuple[float, float]:
+        """Convert widget coordinates to PDF coordinates."""
+        return pos.x() / self.zoom, pos.y() / self.zoom
 
-    def mousePressEvent(self, event):
-        # Ensure this widget has focus for keyboard shortcuts
+    def _to_screen_coords(self, pdf_x: float, pdf_y: float) -> Tuple[float, float]:
+        """Convert PDF coordinates to screen coordinates."""
+        return pdf_x * self.zoom, pdf_y * self.zoom
+
+    # Mouse event handlers
+
+    def mousePressEvent(self, event: QMouseEvent):
         self.setFocus()
-        
-        if self.is_drawing_mode and event.button() == Qt.LeftButton:
-            # Start drawing
-            self.is_currently_drawing = True
-            self.current_drawing_points = [(event.pos().x() / self.zoom_level, 
-                                            event.pos().y() / self.zoom_level)]
-            self.update()
-        elif event.button() == Qt.LeftButton:
-            # Check for annotation selection first
-            main_window = self.get_main_window()
-            if main_window:
-                page_index = self.get_page_index()
-                if page_index is not None:
-                    annotation = main_window.annotation_manager.get_annotation_at_point(
-                        page_index, event.pos().x(), event.pos().y(), self.zoom_level
-                    )
-                    
-                    if annotation and event.modifiers() & Qt.ControlModifier:
-                        # Ctrl+Click on annotation to select it
-                        self.selected_annotation = annotation
-                        main_window.annotation_manager.selected_annotation = annotation
-                        self.annotation_selected.emit(annotation)
-                        self.update()
-                        return
-                    elif not annotation:
-                        # Click on empty space - deselect annotation
-                        if self.selected_annotation:
-                            self.selected_annotation = None
-                            if main_window:
-                                main_window.annotation_manager.selected_annotation = None
-                            self.update()
-            
-            # Normal text selection
-            self.input_handler.handle_page_label_mouse_press(self, event)
 
-    def mouseMoveEvent(self, event):
-        # Check for annotation hover
-        if not self.is_drawing_mode and not self.is_currently_drawing:
-            main_window = self.get_main_window()
-            if main_window:
-                page_index = self.get_page_index()
-                if page_index is not None:
-                    annotation = main_window.annotation_manager.get_annotation_at_point(
-                        page_index, event.pos().x(), event.pos().y(), self.zoom_level
-                    )
-                    
-                    if annotation != self.hovered_annotation:
-                        self.hovered_annotation = annotation
-                        if annotation:
-                            self.setCursor(Qt.PointingHandCursor)
-                        else:
-                            self.setCursor(Qt.ArrowCursor if not self.is_drawing_mode else Qt.CrossCursor)
-                        self.update()
-        
-        if self.is_drawing_mode and self.is_currently_drawing:
-            # Add point to current drawing
-            self.current_drawing_points.append((event.pos().x() / self.zoom_level, 
-                                            event.pos().y() / self.zoom_level))
-            self.update()
+        if event.button() != Qt.LeftButton:
+            return super().mousePressEvent(event)
+
+        # Handle drawing mode
+        if self._is_drawing_mode:
+            self._start_drawing(event.pos())
+            return
+
+        pos = event.pos()
+        pdf_x, pdf_y = self._to_pdf_coords(pos)
+
+        # Check what's at this position
+        element = self.page_model.get_element_at_point(pos.x(), pos.y(), self.zoom)
+
+        # Handle click counting for double/triple click
+        if self._last_click_pos and (pos - self._last_click_pos).manhattanLength() < 5:
+            self._click_count += 1
         else:
-            # Normal text selection
-            self.input_handler.handle_page_label_mouse_move(self, event)
-            
-    def mouseReleaseEvent(self, event):        
-        if self.is_drawing_mode and event.button() == Qt.LeftButton and self.is_currently_drawing:
-            # Finish drawing
-            self.is_currently_drawing = False
-            self.current_drawing_points.append((event.pos().x() / self.zoom_level, 
-                                            event.pos().y() / self.zoom_level))
-            
-            # Create annotation from the drawn shape
-            self._finalize_drawing()
-            
-            self.current_drawing_points = []
+            self._click_count = 1
+
+        self._last_click_pos = QPointF(pos)
+        self._click_timer.start(400)  # Reset after 400ms
+
+        # Handle based on element type
+        if element.type == InteractionType.LINK:
+            # Don't start selection on links
+            return
+
+        elif element.type == InteractionType.TEXT:
+            char: CharacterInfo = element.element
+
+            if self._click_count == 3:
+                # Triple click: select line
+                self.selection_manager.select_line_at(self.page_model.page_index, char)
+            elif self._click_count == 2:
+                # Double click: select word
+                self.selection_manager.select_word_at(self.page_model.page_index, char)
+            else:
+                # Single click: start selection
+                self._is_selecting = True
+
+                if event.modifiers() & Qt.ShiftModifier:
+                    # Shift+click: extend selection
+                    self.selection_manager.extend_selection(
+                        self.page_model.page_index, char
+                    )
+                else:
+                    # Normal click: start new selection
+                    self.selection_manager.start_selection(
+                        self.page_model.page_index, char
+                    )
+
+            self.selection_changed.emit()
             self.update()
+
         else:
-            # Normal text selection
-            self.input_handler.handle_page_label_mouse_release(self, event)
+            # Clicked on empty area
+            if not (event.modifiers() & Qt.ShiftModifier):
+                self.selection_manager.clear()
+                self.update()
 
-    def keyPressEvent(self, event):
-        """Handle keyboard shortcuts for annotations."""
-        if event.key() == Qt.Key_Delete or event.key() == Qt.Key_Backspace:
-            if self.selected_annotation:
-                self.delete_annotation(self.selected_annotation)
-                event.accept()
-                return
-        
-        super().keyPressEvent(event)
+    def mouseMoveEvent(self, event: QMouseEvent):
+        pos = event.pos()
 
-    def delete_annotation(self, annotation):
-        """Delete the specified annotation using controller with one-time warning."""
-        main_window = self.get_main_window()
-        if main_window and hasattr(main_window, 'annotation_controller'):
-            # Use the annotation controller which handles the warning
-            if main_window.annotation_controller.delete_annotation(annotation):
-                self.selected_annotation = None
-                main_window._refresh_current_page()
+        # Handle drawing
+        if self._is_drawing_mode and self._is_drawing:
+            self._continue_drawing(pos)
+            return
 
-    def edit_annotation_color(self, annotation):
-        """Edit the color of an annotation."""
-        from PyQt5.QtWidgets import QColorDialog
-        
-        initial_color = QColor(annotation.color[0], annotation.color[1], annotation.color[2])
-        color = QColorDialog.getColor(initial_color, self, "Choose New Color")
-        
-        if color.isValid():
-            main_window = self.get_main_window()
-            if main_window:
-                # Create a new annotation with updated color
-                from core.annotations import Annotation
-                new_annotation = Annotation(
-                    page_index=annotation.page_index,
-                    annotation_type=annotation.annotation_type,
-                    color=(color.red(), color.green(), color.blue()),
-                    quads=annotation.quads,
-                    points=annotation.points,
-                    stroke_width=annotation.stroke_width,
-                    filled=annotation.filled
+        # Handle selection dragging
+        if self._is_selecting and (event.buttons() & Qt.LeftButton):
+            element = self.page_model.get_element_at_point(pos.x(), pos.y(), self.zoom)
+
+            if element.type == InteractionType.TEXT:
+                self.selection_manager.extend_selection(
+                    self.page_model.page_index, element.element
                 )
-                
-                # Update the annotation
-                if main_window.annotation_manager.update_annotation(annotation, new_annotation):
-                    main_window._refresh_current_page()
+                self.selection_changed.emit()
+                self.update()
+            return
 
-    def get_main_window(self):
-        """Get the main window through parent chain."""
-        main_window = self.parent()
-        while main_window and not hasattr(main_window, 'annotation_manager'):
-            main_window = main_window.parent()
-        return main_window
+        # Handle hover effects
+        element = self.page_model.get_element_at_point(pos.x(), pos.y(), self.zoom)
 
-    def get_page_index(self):
-        """Find which page this label represents."""
-        main_window = self.get_main_window()
-        if main_window:
-            for idx, label in main_window.loaded_pages.items():
-                if label == self:
-                    return idx
-        return None
+        if element.type == InteractionType.LINK:
+            link: LinkInfo = element.element
 
-    def _finalize_drawing(self):
-        """Create an annotation from the current drawing."""
-        
-        if len(self.current_drawing_points) < 2:
-            return  # Need at least 2 points
-        
-        # Emit signal to parent to create annotation
-        # We'll handle this through the main window
+            if link != self._hovered_link:
+                self._hovered_link = link
+                self.link_hovered.emit(link)
+                self.setCursor(Qt.PointingHandCursor)
+
+                # Show tooltip
+                if self.link_handler:
+                    tooltip = self.link_handler.get_link_tooltip(link)
+                    QToolTip.showText(event.globalPos(), tooltip, self)
+
+                self.update()
+
+        elif element.type == InteractionType.TEXT:
+            if self._hovered_link:
+                self._hovered_link = None
+                self.link_hovered.emit(None)
+                self.update()
+            self.setCursor(Qt.IBeamCursor)
+
+        else:
+            if self._hovered_link:
+                self._hovered_link = None
+                self.link_hovered.emit(None)
+                self.update()
+            self.setCursor(Qt.ArrowCursor)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() != Qt.LeftButton:
+            return super().mouseReleaseEvent(event)
+
+        # Handle drawing
+        if self._is_drawing_mode and self._is_drawing:
+            self._finish_drawing(event.pos())
+            return
+
+        # Handle link click
+        if self._hovered_link and not self._is_selecting:
+            self.link_clicked.emit(self._hovered_link)
+
+            if self.link_handler:
+                self.link_handler.handle_link_click(self._hovered_link)
+
+        # Finish selection
+        if self._is_selecting:
+            self._is_selecting = False
+            self.selection_manager.finish_selection()
+
+    def _reset_click_count(self):
+        """Reset click count after timeout."""
+        self._click_count = 0
+
+    # Drawing methods
+
+    def _start_drawing(self, pos):
+        """Start a drawing operation."""
+        self._is_drawing = True
+        pdf_x, pdf_y = self._to_pdf_coords(pos)
+        self._drawing_points = [(pdf_x, pdf_y)]
+        self.update()
+
+    def _continue_drawing(self, pos):
+        """Continue drawing operation."""
+        pdf_x, pdf_y = self._to_pdf_coords(pos)
+        self._drawing_points.append((pdf_x, pdf_y))
+        self.update()
+
+    def _finish_drawing(self, pos):
+        """Finish drawing and create annotation."""
+        pdf_x, pdf_y = self._to_pdf_coords(pos)
+        self._drawing_points.append((pdf_x, pdf_y))
+        self._is_drawing = False
+
+        if len(self._drawing_points) >= 2:
+            # Create annotation (emit signal for parent to handle)
+            self._create_drawing_annotation()
+
+        self._drawing_points = []
+        self.update()
+
+    def _create_drawing_annotation(self):
+        """Create annotation from current drawing."""
         from core.annotations import Annotation
-        
-        main_window = self.get_main_window()
-        page_index = self.get_page_index()
-        
-        if main_window and page_index is not None:
+
+        # Get main window through parent chain
+        main_window = self.parent()
+        while main_window and not hasattr(main_window, "annotation_manager"):
+            main_window = main_window.parent()
+
+        if main_window and self._drawing_points:
             annotation = Annotation(
-                page_index=page_index,
-                annotation_type=self.current_drawing_tool,
-                color=self.current_drawing_color,
-                points=self.current_drawing_points.copy(),
-                stroke_width=self.current_drawing_stroke_width,
-                filled=self.current_drawing_filled
+                page_index=self.page_model.page_index,
+                annotation_type=self._drawing_tool,
+                color=self._drawing_color,
+                points=self._drawing_points.copy(),
+                stroke_width=self._drawing_stroke_width,
+                filled=self._drawing_filled,
             )
             main_window.annotation_manager.add_annotation(annotation)
-                        
-            # Refresh this page to show the new annotation
             main_window._refresh_current_page()
-                
+
+    # Paint methods
+
     def paintEvent(self, event):
-        # 1. First, call the superclass's paintEvent to draw the QPixmap (the page image)
-        super().paintEvent(event)
-        
-        # 2. Initialize the QPainter for the widget
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        # Create a QImage buffer with the size of the widget and make it transparent
-        buffer = QImage(self.size(), QImage.Format_ARGB32_Premultiplied)
-        buffer.fill(Qt.transparent)
-        
-        # Initialize the QPainter for the buffer
-        buf_painter = QPainter(buffer)
-        buf_painter.setCompositionMode(QPainter.CompositionMode_Source)
-        buf_painter.setRenderHint(QPainter.Antialiasing)
-        buf_painter.setPen(Qt.NoPen)
-        
-        # --- Draw Search Highlights onto the buffer ---
-        
-        if 0 <= self.current_search_highlight_index < len(self.search_highlights):
-            current_rect = self.search_highlights[self.current_search_highlight_index]
-            current_highlight_rect = QRectF(
-                current_rect.x0 * self.zoom_level,
-                current_rect.y0 * self.zoom_level,
-                current_rect.width * self.zoom_level,
-                current_rect.height * self.zoom_level
-            )
-            if self.dark_mode:
-                current_highlight_color = QColor(255, 255, 0, 100)
-            else:
-                current_highlight_color = QColor(0, 89, 195, 100)
-                
-            buf_painter.setBrush(QBrush(current_highlight_color))
-            buf_painter.drawRect(current_highlight_rect)
-            buf_painter.setBrush(Qt.NoBrush)
+        try:
+            super().paintEvent(event)
 
-        # --- Draw Annotations onto the buffer ---
-        
-        for annotation in self.annotations:
-            # Check if this annotation is selected or hovered
-            is_selected = (annotation == self.selected_annotation or 
-                          annotation == (self.get_main_window().annotation_manager.selected_annotation 
-                                       if self.get_main_window() else None))
-            is_hovered = annotation == self.hovered_annotation
-            
-            # Adjust opacity and add selection outline
-            if is_selected:
-                opacity = 150
-            elif is_hovered:
-                opacity = 120
-            else:
-                opacity = 100
-                
-            color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], opacity)
-            
-            if annotation.annotation_type == AnnotationType.HIGHLIGHT:
-                buf_painter.setBrush(QBrush(color))
-                for quad in annotation.quads:
-                    rect = QRectF(
-                        quad[0] * self.zoom_level,
-                        quad[1] * self.zoom_level,
-                        (quad[2] - quad[0]) * self.zoom_level,
-                        (quad[5] - quad[1]) * self.zoom_level
-                    )
-                    buf_painter.drawRect(rect)
-                    
-                    # Draw selection outline
-                    if is_selected:
-                        from PyQt5.QtGui import QPen
-                        outline_pen = QPen(QColor(0, 120, 255), 2)
-                        buf_painter.setPen(outline_pen)
-                        buf_painter.setBrush(Qt.NoBrush)
-                        buf_painter.drawRect(rect)
-                        buf_painter.setPen(Qt.NoPen)
-                        buf_painter.setBrush(QBrush(color))
-                        
-                buf_painter.setBrush(Qt.NoBrush)
-            
-            elif annotation.annotation_type == AnnotationType.UNDERLINE:
-                buf_painter.setPen(color)
-                for quad in annotation.quads:
-                    line_y = quad[5] * self.zoom_level
-                    buf_painter.drawLine(
-                        int(quad[0] * self.zoom_level),
-                        int(line_y),
-                        int(quad[2] * self.zoom_level),
-                        int(line_y)
-                    )
-                buf_painter.setPen(Qt.NoPen)
-            
-            # Drawing annotations
-            elif annotation.annotation_type in [AnnotationType.FREEHAND, AnnotationType.LINE, 
-                                            AnnotationType.ARROW, AnnotationType.RECTANGLE, 
-                                            AnnotationType.CIRCLE]:
-                
-                if not annotation.points or len(annotation.points) < 2:
-                    continue
-                
-                from PyQt5.QtGui import QPen, QPainterPath
-                from PyQt5.QtCore import QPointF
-                import math
-                
-                solid_color = QColor(annotation.color[0], annotation.color[1], annotation.color[2], 255)
-                
-                # Add selection glow for freehand
-                if is_selected and annotation.annotation_type == AnnotationType.FREEHAND:
-                    glow_pen = QPen(QColor(0, 120, 255, 100), annotation.stroke_width + 4)
-                    buf_painter.setPen(glow_pen)
-                    
-                    path = QPainterPath()
-                    first_point = annotation.points[0]
-                    path.moveTo(first_point[0] * self.zoom_level, first_point[1] * self.zoom_level)
-                    for point in annotation.points[1:]:
-                        path.lineTo(point[0] * self.zoom_level, point[1] * self.zoom_level)
-                    buf_painter.drawPath(path)
-                
-                pen = QPen(solid_color, annotation.stroke_width)
-                buf_painter.setPen(pen)
-                
-                if annotation.annotation_type == AnnotationType.FREEHAND:
-                    if annotation.filled:
-                        buf_painter.setBrush(QBrush(solid_color))
-                    
-                    path = QPainterPath()
-                    first_point = annotation.points[0]
-                    path.moveTo(first_point[0] * self.zoom_level, first_point[1] * self.zoom_level)
-                    for point in annotation.points[1:]:
-                        path.lineTo(point[0] * self.zoom_level, point[1] * self.zoom_level)
-                    buf_painter.drawPath(path)
-                    
-                    if annotation.filled:
-                        buf_painter.setBrush(Qt.NoBrush)
-                
-                buf_painter.setPen(Qt.NoPen)
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
 
-        # --- Draw current drawing in progress (real-time preview) ---
-        
-        if self.is_currently_drawing and len(self.current_drawing_points) >= 2:
-            preview_color = QColor(self.current_drawing_color[0], 
-                                self.current_drawing_color[1], 
-                                self.current_drawing_color[2], 150)
-            
-            from PyQt5.QtGui import QPen, QPainterPath
-            from PyQt5.QtCore import QPointF
-            import math
-            
-            pen = QPen(preview_color, self.current_drawing_stroke_width)
-            buf_painter.setPen(pen)
-            
-            if self.current_drawing_tool == AnnotationType.FREEHAND:
-                if self.current_drawing_filled:
-                    buf_painter.setBrush(QBrush(preview_color))
-                path = QPainterPath()
-                first_point = self.current_drawing_points[0]
-                path.moveTo(first_point[0] * self.zoom_level, first_point[1] * self.zoom_level)
-                for point in self.current_drawing_points[1:]:
-                    path.lineTo(point[0] * self.zoom_level, point[1] * self.zoom_level)
-                buf_painter.drawPath(path)
-                if self.current_drawing_filled:
-                    buf_painter.setBrush(Qt.NoBrush)
-            
-            buf_painter.setPen(Qt.NoPen)
+            self._paint_selection(painter)
+            self._paint_search_highlights(painter)
+            self._paint_link_hover(painter)
+            self._paint_annotations(painter)
 
-        # --- Draw Text Selection Highlights onto the buffer ---
+            if self._is_drawing and self._drawing_points:
+                self._paint_drawing_preview(painter)
 
-        if self.selection_rects:
-            if self.dark_mode:
-                selection_color = QColor(255, 255, 0, 100)
-            else:
-                selection_color = QColor(0, 89, 195, 100)
-                
-            buf_painter.setBrush(QBrush(selection_color))
-            
-            for rect in self.selection_rects:
-                buf_painter.drawRect(rect)
-            
-            buf_painter.setBrush(Qt.NoBrush)
-        
-        # IMPORTANT: End the buffer painter BEFORE using it elsewhere
-        buf_painter.end()
+            painter.end()
+        except Exception as e:
+            print(f"PAINT ERROR: {e}")
+            import traceback
 
-        # 3. Now paint the combined buffer onto the widget
-        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        painter.drawImage(0, 0, buffer)
-        
-        painter.end()
-    
-    def get_selection_rects(self):
-        return self.selection_rects
-    
-    def get_selected_text(self):
-        if not self.selected_words:
-            return ""
+            traceback.print_exc()
 
-        sorted_words = sorted(list(self.selected_words), key=lambda x: (x[1], x[0]))
-        
-        text_lines = []
-        current_line_key = None
-        current_line_words = []
-        for word_info in sorted_words:
-            line_key = (word_info[5], word_info[6])
-            if current_line_key is None:
-                current_line_key = line_key
-            
-            if line_key != current_line_key:
-                text_lines.append(" ".join(current_line_words))
-                current_line_key = line_key
-                current_line_words = []
-            
-            current_line_words.append(word_info[4])
-        
-        if current_line_words:
-            text_lines.append(" ".join(current_line_words))
+    def _paint_selection(self, painter: QPainter):
+        """Paint text selection highlights."""
+        selection = self.selection_manager.get_selection_for_page(
+            self.page_model.page_index
+        )
 
-        return "\n".join(text_lines)
-    
-    def set_drawing_mode(self, enabled, tool=None, color=None, stroke_width=None, filled=None):
-        """Enable or disable drawing mode and update tool settings."""
-        self.is_drawing_mode = enabled
-        
-        if tool is not None:
-            self.current_drawing_tool = tool
-        if color is not None:
-            self.current_drawing_color = color
-        if stroke_width is not None:
-            self.current_drawing_stroke_width = stroke_width
-        if filled is not None:
-            self.current_drawing_filled = filled
-        
-        # Change cursor when in drawing mode
-        if self.is_drawing_mode:
-            self.setCursor(Qt.CrossCursor)
+        if not selection or not selection.rects:
+            return
+
+        # Selection color
+        if self.dark_mode:
+            color = QColor(255, 255, 0, 100)
         else:
-            self.setCursor(Qt.ArrowCursor)
+            color = QColor(0, 89, 195, 100)
+
+        painter.setBrush(QBrush(color))
+        painter.setPen(Qt.NoPen)
+
+        for rect in selection.rects:
+            screen_rect = QRectF(
+                rect[0] * self.zoom,
+                rect[1] * self.zoom,
+                (rect[2] - rect[0]) * self.zoom,
+                (rect[3] - rect[1]) * self.zoom,
+            )
+            painter.drawRect(screen_rect)
+
+    def _paint_search_highlights(self, painter: QPainter):
+        """Paint search result highlights."""
+        if not self.search_highlights:
+            return
+
+        for i, rect in enumerate(self.search_highlights):
+            # Handle fitz.Rect objects
+            if hasattr(rect, "x0"):
+                x0, y0 = rect.x0, rect.y0
+                w, h = rect.width, rect.height
+            else:
+                # Handle tuple format
+                x0, y0, x1, y1 = rect
+                w, h = x1 - x0, y1 - y0
+
+            screen_rect = QRectF(
+                x0 * self.zoom, y0 * self.zoom, w * self.zoom, h * self.zoom
+            )
+
+            # Current result gets different color
+            if i == self.current_search_highlight_index:
+                color = (
+                    QColor(255, 165, 0, 150)
+                    if self.dark_mode
+                    else QColor(255, 140, 0, 150)
+                )
+            else:
+                color = (
+                    QColor(255, 255, 0, 80)
+                    if self.dark_mode
+                    else QColor(255, 255, 0, 100)
+                )
+
+            painter.setBrush(QBrush(color))
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(screen_rect)
+
+    def _paint_link_hover(self, painter: QPainter):
+        """Paint link hover indication."""
+        if not self._hovered_link:
+            return
+
+        bbox = self._hovered_link.bbox
+        screen_rect = QRectF(
+            bbox[0] * self.zoom,
+            bbox[1] * self.zoom,
+            (bbox[2] - bbox[0]) * self.zoom,
+            (bbox[3] - bbox[1]) * self.zoom,
+        )
+
+        # Draw subtle underline
+        pen = QPen(QColor(0, 100, 200, 150), 2)
+        painter.setPen(pen)
+        painter.drawLine(screen_rect.bottomLeft(), screen_rect.bottomRight())
+
+        # Optional: draw subtle highlight
+        painter.setBrush(QBrush(QColor(0, 100, 200, 30)))
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(screen_rect)
+
+    def _paint_annotations(self, painter: QPainter):
+        """Paint annotations on this page."""
+        for ann in self.annotations:
+            if ann.annotation_type == AnnotationType.HIGHLIGHT:
+                self._paint_highlight(painter, ann)
+            elif ann.annotation_type == AnnotationType.UNDERLINE:
+                self._paint_underline(painter, ann)
+            elif ann.annotation_type == AnnotationType.FREEHAND:
+                self._paint_freehand(painter, ann)
+
+    def _paint_highlight(self, painter: QPainter, ann):
+        """Paint a highlight annotation."""
+        color = QColor(ann.color[0], ann.color[1], ann.color[2], 100)
+        painter.setBrush(QBrush(color))
+        painter.setPen(Qt.NoPen)
+
+        for quad in ann.quads:
+            rect = QRectF(
+                quad[0] * self.zoom,
+                quad[1] * self.zoom,
+                (quad[2] - quad[0]) * self.zoom,
+                (quad[5] - quad[1]) * self.zoom,
+            )
+            painter.drawRect(rect)
+
+    def _paint_underline(self, painter: QPainter, ann):
+        """Paint an underline annotation."""
+        color = QColor(ann.color[0], ann.color[1], ann.color[2])
+        painter.setPen(QPen(color, 2))
+
+        for quad in ann.quads:
+            y = quad[5] * self.zoom
+            painter.drawLine(
+                int(quad[0] * self.zoom), int(y), int(quad[2] * self.zoom), int(y)
+            )
+
+    def _paint_freehand(self, painter: QPainter, ann):
+        """Paint a freehand drawing annotation."""
+        if not ann.points or len(ann.points) < 2:
+            return
+
+        color = QColor(ann.color[0], ann.color[1], ann.color[2])
+        painter.setPen(QPen(color, ann.stroke_width))
+
+        if ann.filled:
+            painter.setBrush(QBrush(color))
+
+        path = QPainterPath()
+        first = ann.points[0]
+        path.moveTo(first[0] * self.zoom, first[1] * self.zoom)
+
+        for point in ann.points[1:]:
+            path.lineTo(point[0] * self.zoom, point[1] * self.zoom)
+
+        painter.drawPath(path)
+
+    def _paint_drawing_preview(self, painter: QPainter):
+        """Paint the current drawing in progress."""
+        if len(self._drawing_points) < 2:
+            return
+
+        color = QColor(
+            self._drawing_color[0], self._drawing_color[1], self._drawing_color[2], 150
+        )
+        painter.setPen(QPen(color, self._drawing_stroke_width))
+
+        path = QPainterPath()
+        first = self._drawing_points[0]
+        path.moveTo(first[0] * self.zoom, first[1] * self.zoom)
+
+        for point in self._drawing_points[1:]:
+            path.lineTo(point[0] * self.zoom, point[1] * self.zoom)
+
+        painter.drawPath(path)
+
+    def get_selected_text(self) -> str:
+        """Get selected text on this page."""
+        return self.selection_manager.get_selected_text()
