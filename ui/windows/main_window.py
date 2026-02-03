@@ -641,6 +641,10 @@ class MainWindow(QMainWindow):
             if self.pdf_reader.doc:
                 # Clear and reload pages
                 self.page_manager.clear_all()
+
+                # Process events to ensure old widgets are fully removed
+                QApplication.processEvents()
+
                 self.update_visible_pages()
 
                 # Process events to update layout
@@ -701,6 +705,10 @@ class MainWindow(QMainWindow):
         if self.pdf_reader.doc:
             current_page_index, offset_in_page = self.get_current_page_info()
             self.page_manager.clear_all()
+
+            # Process events to ensure old widgets are fully removed
+            QApplication.processEvents()
+
             self.update_visible_pages(desired_page=current_page_index)
 
             # Restore position
@@ -1137,7 +1145,10 @@ class MainWindow(QMainWindow):
     def _refresh_current_page(self):
         """Refresh the current page display."""
         if self.current_page_index in self.loaded_pages:
-            self.loaded_pages[self.current_page_index].deleteLater()
+            label = self.loaded_pages[self.current_page_index]
+            label.hide()
+            label.setParent(None)
+            label.deleteLater()
             del self.loaded_pages[self.current_page_index]
 
             # Also clear the page model cache
@@ -1145,20 +1156,32 @@ class MainWindow(QMainWindow):
                 if self.current_page_index in self.page_manager.page_models:
                     self.page_manager.page_models[self.current_page_index].clear_cache()
 
+            # Process events before loading new page
+            QApplication.processEvents()
+
             self.page_manager.update_visible_pages(self.current_page_index)
 
     def _refresh_all_visible_pages(self):
         """Refresh all currently visible pages."""
+        # Create a list of indices to avoid modification during iteration
+        indices_to_remove = list(self.loaded_pages.keys())
+
         # Clear all loaded pages
-        for idx in list(self.loaded_pages.keys()):
+        for idx in indices_to_remove:
             if idx in self.loaded_pages:
-                self.loaded_pages[idx].deleteLater()
+                label = self.loaded_pages[idx]
+                label.hide()
+                label.setParent(None)
+                label.deleteLater()
                 del self.loaded_pages[idx]
 
         # Clear page model caches
         if hasattr(self.page_manager, "page_models"):
-            for model in self.page_manager.page_models.values():
+            for model in list(self.page_manager.page_models.values()):
                 model.clear_cache()
+
+        # Process events to ensure cleanup is complete
+        QApplication.processEvents()
 
         self.update_visible_pages()
 
