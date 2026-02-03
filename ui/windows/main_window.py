@@ -40,7 +40,7 @@ from core.annotations import AnnotationManager, AnnotationType
 from core.document import PDFDocumentReader, PDFExporter
 from core.export import ExportWorker
 from core.page import PageModel
-from core.search import PDFSearchEngine, SearchHighlight
+from core.search import PDFSearchEngine, SearchHighlight, SearchWorker
 from core.selection import SelectionManager
 from styles import ThemeManager
 from ui.toolbars import AnnotationToolbar, DrawingToolbar, SearchBar
@@ -93,6 +93,7 @@ class MainWindow(QMainWindow):
 
         # Search engine
         self.search_engine = PDFSearchEngine()
+        self.search_worker: Optional[SearchWorker] = None
 
         # View state
         self.dark_mode = True
@@ -730,33 +731,93 @@ class MainWindow(QMainWindow):
         self._clear_search()
 
     def _execute_search(self, search_term: str):
-        """Execute a search."""
+        """Execute a search using background thread for large documents."""
         try:
             if not search_term:
                 self.search_bar.set_status("0 results")
                 self.page_manager.update_page_highlights()
                 return
 
-            num_results = self.search_engine.execute_search(search_term)
+            if not self.pdf_reader.doc:
+                return
 
-            if num_results > 0:
-                self._find_next()
-            else:
-                self.search_bar.set_status("0 results")
-                self.page_manager.update_page_highlights()
+            # Cancel any existing search
+            if self.search_worker is not None and self.search_worker.isRunning():
+                self.search_worker.cancel()
+                self.search_worker.wait()
+
+            # Clear previous results
+            self.search_engine.clear_search()
+            self.search_engine.start_search(search_term)
+
+            # Update status
+            self.search_bar.set_status("Searching...")
+
+            # Create and start worker
+            self.search_worker = SearchWorker(self.pdf_reader.doc, search_term, self)
+
+            # Connect signals
+            self.search_worker.progress.connect(self._on_search_progress)
+            self.search_worker.result_found.connect(self._on_search_result_found)
+            self.search_worker.finished.connect(self._on_search_finished)
+            self.search_worker.error.connect(self._on_search_error)
+
+            # Start search
+            self.search_worker.start()
+
         except Exception as e:
             print(f"SEARCH ERROR: {e}")
             import traceback
 
             traceback.print_exc()
 
+    def _on_search_progress(self, current_page: int, total_pages: int):
+        """Handle search progress updates."""
+        self.search_bar.set_status(f"Searching page {current_page}/{total_pages}...")
+
+    def _on_search_result_found(self, result):
+        """Handle individual search result found."""
+        self.search_engine.add_result(result)
+
+    def _on_search_finished(self, total_results: int):
+        """Handle search completion."""
+        self.search_engine.finish_search()
+
+        if total_results > 0:
+            self.search_bar.set_status(f"1 of {total_results}")
+            self._find_next()
+        else:
+            self.search_bar.set_status("0 results")
+            self.page_manager.update_page_highlights()
+
+        # Clean up worker
+        if self.search_worker:
+            self.search_worker.deleteLater()
+            self.search_worker = None
+
+    def _on_search_error(self, error_msg: str):
+        """Handle search error."""
+        print(f"Search error: {error_msg}")
+        self.search_bar.set_status("Search failed")
+        self.search_engine.finish_search()
+
+        if self.search_worker:
+            self.search_worker.deleteLater()
+            self.search_worker = None
+
     def _find_next(self):
         """Find next search result."""
+        if self.search_engine.is_searching():
+            return  # Don't navigate while still searching
+
         page_idx, rect = self.search_engine.next_result()
         self._jump_to_current_search_result()
 
     def _find_prev(self):
         """Find previous search result."""
+        if self.search_engine.is_searching():
+            return  # Don't navigate while still searching
+
         page_idx, rect = self.search_engine.previous_result()
         self._jump_to_current_search_result()
 
@@ -765,10 +826,8 @@ class MainWindow(QMainWindow):
         page_idx, rect = self.search_engine.get_current_result()
 
         if page_idx is not None and rect is not None:
-            # rect is already a tuple (x0, y0, x1, y1, width, height) from SearchResult
-            # Handle both fitz.Rect objects (legacy) and tuple format
+            # rect is already a tuple from SearchResult
             if hasattr(rect, "x0"):
-                # Legacy fitz.Rect object
                 rect_tuple = (
                     rect.x0,
                     rect.y0,
@@ -778,7 +837,6 @@ class MainWindow(QMainWindow):
                     rect.height,
                 )
             else:
-                # Already a tuple - use directly
                 rect_tuple = rect
 
             self.page_manager.jump_to_search_result(page_idx, rect_tuple)
@@ -789,6 +847,13 @@ class MainWindow(QMainWindow):
 
     def _clear_search(self):
         """Clear search results."""
+        # Cancel any running search
+        if self.search_worker is not None and self.search_worker.isRunning():
+            self.search_worker.cancel()
+            self.search_worker.wait()
+            self.search_worker.deleteLater()
+            self.search_worker = None
+
         self.search_engine.clear_search()
         self.search_bar.clear_search()
         self.page_manager.update_page_highlights()
