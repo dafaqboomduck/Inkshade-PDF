@@ -155,7 +155,7 @@ class PDFSearchEngine:
         return fitz.Rect(min_x0, min_y0, max_x1, max_y1)
 
     def _merge_consecutive_rects(
-        self, rects: List[fitz.Rect], y_tolerance: float = 3.0, max_height: float = 18.0
+        self, rects: List[fitz.Rect], y_tolerance: float = 3.0, max_height: float = 8.0
     ) -> List[Tuple]:
         """Groups and merges rectangles, returns tuples."""
         if not rects:
