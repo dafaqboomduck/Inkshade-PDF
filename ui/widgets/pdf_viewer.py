@@ -67,14 +67,25 @@ class PDFViewer:
 
     def clear_all(self):
         """Clears all loaded pages and resets state."""
-        # Clear page labels
-        for label in self.loaded_pages.values():
-            label.deleteLater()
+        # Create a list copy of keys to avoid dictionary modification during iteration
+        page_indices = list(self.loaded_pages.keys())
+
+        # Clear page labels - hide and delete immediately
+        for idx in page_indices:
+            if idx in self.loaded_pages:
+                label = self.loaded_pages[idx]
+                label.hide()
+                label.setParent(None)
+                label.deleteLater()
+
+        # Clear the dictionary after iteration is complete
         self.loaded_pages.clear()
 
         # Clear page models
-        for model in self.page_models.values():
-            model.unload()
+        model_indices = list(self.page_models.keys())
+        for idx in model_indices:
+            if idx in self.page_models:
+                self.page_models[idx].unload()
         self.page_models.clear()
 
         # Clear selection
@@ -84,12 +95,15 @@ class PDFViewer:
         self.page_height = None
         self.page_container.setMinimumHeight(0)
 
+        # Force immediate update of the container
+        self.page_container.update()
+
     def set_zoom(self, new_zoom: float):
         """Updates the zoom factor."""
         self.zoom = new_zoom
 
         # Clear pixmap caches in page models
-        for model in self.page_models.values():
+        for model in list(self.page_models.values()):
             model.clear_cache()
 
     def set_dark_mode(self, dark_mode: bool):
@@ -97,14 +111,14 @@ class PDFViewer:
         self.dark_mode = dark_mode
 
         # Clear pixmap caches
-        for model in self.page_models.values():
+        for model in list(self.page_models.values()):
             model.clear_cache()
 
     def container_resize_event(self, event):
         """Repositions page labels when container size changes."""
         container_width = self.page_container.width()
 
-        for idx, label in self.loaded_pages.items():
+        for idx, label in list(self.loaded_pages.items()):
             if label.pixmap():
                 pix_width = label.pixmap().width()
                 x = (container_width - pix_width) // 2
@@ -134,7 +148,7 @@ class PDFViewer:
         start_index = max(0, current_page_index - self.page_buffer)
         end_index = min(total_pages - 1, current_page_index + self.page_buffer)
 
-        # Unload pages outside the buffer
+        # Unload pages outside the buffer - use list() to avoid modification during iteration
         pages_to_unload = [
             idx
             for idx in list(self.loaded_pages.keys())
@@ -142,8 +156,12 @@ class PDFViewer:
         ]
 
         for idx in pages_to_unload:
-            self.loaded_pages[idx].deleteLater()
-            del self.loaded_pages[idx]
+            if idx in self.loaded_pages:
+                label = self.loaded_pages[idx]
+                label.hide()
+                label.setParent(None)
+                label.deleteLater()
+                del self.loaded_pages[idx]
 
             # Also unload page model to free memory
             if idx in self.page_models:
@@ -374,7 +392,7 @@ class PDFViewer:
     def update_page_highlights(self):
         """Update search highlights on all loaded pages."""
         try:
-            for idx, label in self.loaded_pages.items():
+            for idx, label in list(self.loaded_pages.items()):
                 rects_on_page = []
                 current_idx_on_page = -1
 
@@ -407,7 +425,7 @@ class PDFViewer:
     def clear_selection(self):
         """Clear text selection."""
         self.selection_manager.clear()
-        for label in self.loaded_pages.values():
+        for label in list(self.loaded_pages.values()):
             label.update()
 
     def select_all_on_page(self, page_index: int):
@@ -430,5 +448,5 @@ class PDFViewer:
     def _on_selection_changed(self):
         """Handle selection change from page label."""
         # Update all visible pages to show selection
-        for label in self.loaded_pages.values():
+        for label in list(self.loaded_pages.values()):
             label.update()
