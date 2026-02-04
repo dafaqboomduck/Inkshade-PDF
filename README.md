@@ -28,7 +28,7 @@ You can also build the application from the source code.
 1. Clone the repository:
 
 ```bash
-git clone [https://github.com/dafaqboomduck/Inkshade-PDF.git](https://github.com/dafaqboomduck/Inkshade-PDF.git)
+git clone https://github.com/dafaqboomduck/Inkshade-PDF.git
 cd Inkshade-PDF
 ```
 
