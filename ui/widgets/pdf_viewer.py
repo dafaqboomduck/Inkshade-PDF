@@ -184,50 +184,53 @@ class PDFViewer:
     def apply_zoom_to_pages(self, new_zoom: float):
         """
         Update zoom on all existing pages WITHOUT destroying them.
-        Much faster than clear_all() + update_visible_pages().
         """
-        old_zoom = self.zoom
         self.zoom = new_zoom
 
         if not self.loaded_pages or self.page_height is None:
-            return False  # No pages to update
-
-        # Calculate new page height based on zoom ratio
-        zoom_ratio = new_zoom / old_zoom if old_zoom > 0 else 1.0
-        new_page_height = int(self.page_height * zoom_ratio)
-        self.page_height = new_page_height
-        self.main_window.page_height = new_page_height
-
-        # Update container height
-        if self.pdf_reader_core.total_pages > 0:
-            total_height = (
-                self.pdf_reader_core.total_pages
-                * (self.page_height + self.page_spacing)
-                - self.page_spacing
-            )
-            self.page_container.setMinimumHeight(total_height)
+            return False
 
         # Clear page model caches so they re-render at new zoom
         for model in self.page_models.values():
             model.clear_cache()
 
-        # Update each existing label in place
+        # Re-render each label and get ACTUAL dimensions from pixmap
+        actual_page_height = None
         container_width = self.page_container.width()
+
         for idx, label in list(self.loaded_pages.items()):
             if not self._is_widget_valid(label):
                 continue
 
-            # This re-renders the page at new zoom
+            # Re-render at new zoom
             label.set_zoom(new_zoom)
 
-            # Reposition based on new dimensions
             pixmap = label.pixmap()
             if pixmap:
+                # Get actual height from first rendered page
+                if actual_page_height is None:
+                    actual_page_height = pixmap.height()
+
+                # Position using ACTUAL rendered height
                 x = (container_width - pixmap.width()) // 2
-                y = idx * (self.page_height + self.page_spacing)
+                y = idx * (actual_page_height + self.page_spacing)
                 label.setGeometry(x, y, pixmap.width(), pixmap.height())
 
-        return True  # Successfully updated
+        # Update page_height with actual rendered height
+        if actual_page_height:
+            self.page_height = actual_page_height
+            self.main_window.page_height = actual_page_height
+
+            # Update container height
+            if self.pdf_reader_core.total_pages > 0:
+                total_height = (
+                    self.pdf_reader_core.total_pages
+                    * (self.page_height + self.page_spacing)
+                    - self.page_spacing
+                )
+                self.page_container.setMinimumHeight(total_height)
+
+        return True
 
     def apply_dark_mode_to_pages(self, dark_mode: bool):
         """
