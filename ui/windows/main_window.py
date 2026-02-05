@@ -109,6 +109,14 @@ class MainWindow(QMainWindow):
         self.loaded_pages = {}
         self.current_page_index = 0
 
+        # Re-entrancy guard for scroll handling
+        self._updating_visible_pages = False
+
+        # Timer to catch up after fast scrolling stops
+        self._scroll_idle_timer = QTimer()
+        self._scroll_idle_timer.setSingleShot(True)
+        self._scroll_idle_timer.timeout.connect(self._on_scroll_idle)
+
         # File state
         self.current_file_path: Optional[str] = None
 
@@ -566,15 +574,25 @@ class MainWindow(QMainWindow):
 
     def update_visible_pages(self, desired_page: Optional[int] = None):
         """Update visible pages."""
-        if desired_page is not None:
-            current_page = int(desired_page)
-        elif self.page_height is None:
-            current_page = self.current_page_index
-        else:
-            current_page = self.page_manager.get_current_page_index()
+        # Prevent re-entrant calls
+        if self._updating_visible_pages:
+            return
 
-        self.current_page_index = current_page
-        self.page_manager.update_visible_pages(current_page)
+        self._updating_visible_pages = True
+
+        try:
+            if desired_page is not None:
+                current_page = int(desired_page)
+            elif self.page_height is None:
+                current_page = self.current_page_index
+            else:
+                current_page = self.page_manager.get_current_page_index()
+
+            self.current_page_index = current_page
+            self.page_manager.update_visible_pages(current_page)
+
+        finally:
+            self._updating_visible_pages = False
 
     def update_current_page_display(self):
         """Update the current page display in the toolbar."""
@@ -589,6 +607,17 @@ class MainWindow(QMainWindow):
         """Handle scroll events."""
         self.update_visible_pages()
         self.update_current_page_display()
+
+        # Reset idle timer - will fire when scrolling stops
+        self._scroll_idle_timer.stop()
+        self._scroll_idle_timer.start(150)  # 150ms after last scroll event
+
+    def _on_scroll_idle(self):
+        """Called when scrolling has stopped - load any missing pages."""
+        if self.pdf_reader.doc:
+            # Force update even if guard was set
+            self._updating_visible_pages = False
+            self.update_visible_pages()
 
     def page_number_changed(self):
         """Handle page number input change."""
