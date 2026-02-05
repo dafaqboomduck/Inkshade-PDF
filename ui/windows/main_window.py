@@ -965,7 +965,7 @@ class MainWindow(QMainWindow):
         if self.pdf_reader.doc is None:
             return
 
-        # Get selection from the selection manager (new character-level system)
+        # Get selection from the selection manager
         selection = self.page_manager.selection_manager.get_selection_for_page(
             self.current_page_index
         )
@@ -979,15 +979,13 @@ class MainWindow(QMainWindow):
             return
 
         # Convert selection rects to quads for annotation
-        # Selection rects are (x0, y0, x1, y1) in PDF coordinates
-        # Quads are [x0, y0, x1, y0, x0, y1, x1, y1] format
         quads = []
         for rect in selection.rects:
             x0, y0, x1, y1 = rect
             quad = [x0, y0, x1, y0, x0, y1, x1, y1]
             quads.append(quad)
 
-        # Create annotation directly
+        # Create annotation
         from core.annotations import Annotation
 
         annotation = Annotation(
@@ -1001,10 +999,9 @@ class MainWindow(QMainWindow):
 
         # Clear selection
         self.page_manager.selection_manager.clear()
-        self._refresh_current_page()
 
-        # Emit signal for UI updates
-        self.annotation_controller.annotations_changed.emit()
+        # Update annotations in place - don't destroy/recreate the page!
+        self._update_page_annotations(self.current_page_index)
 
     def show_drawing_toolbar(self):
         """Show or hide the drawing toolbar."""
@@ -1045,13 +1042,13 @@ class MainWindow(QMainWindow):
     def undo_annotation(self):
         """Undo the last annotation."""
         if self.annotation_controller.undo():
-            self._refresh_all_visible_pages()
+            self._update_all_page_annotations()  # Update in place, no refresh
             self._update_undo_redo_buttons()
 
     def redo_annotation(self):
         """Redo the last undone annotation."""
         if self.annotation_controller.redo():
-            self._refresh_all_visible_pages()
+            self._update_all_page_annotations()  # Update in place, no refresh
             self._update_undo_redo_buttons()
 
     def _update_undo_redo_buttons(self):
@@ -1187,8 +1184,24 @@ class MainWindow(QMainWindow):
 
     def _on_annotations_changed(self):
         """Handle annotation changes."""
-        self._refresh_current_page()
+        # Update all visible pages' annotations in place
+        self._update_all_page_annotations()
         self._update_undo_redo_buttons()
+
+    def _update_page_annotations(self, page_index: int):
+        """Update annotations on a single page without destroying it."""
+        if page_index in self.loaded_pages:
+            label = self.loaded_pages[page_index]
+            annotations = self.annotation_manager.get_annotations_for_page(page_index)
+            label.set_annotations(annotations)
+            label.update()
+
+    def _update_all_page_annotations(self):
+        """Update annotations on all visible pages without destroying them."""
+        for idx, label in self.loaded_pages.items():
+            annotations = self.annotation_manager.get_annotations_for_page(idx)
+            label.set_annotations(annotations)
+            label.update()
 
     def copy_selected_text(self):
         """Copy selected text to clipboard."""
