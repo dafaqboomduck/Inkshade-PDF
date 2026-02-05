@@ -59,6 +59,9 @@ class PDFViewer:
         # Page loading buffer
         self.page_buffer = 7
 
+        # Re-entrancy guard
+        self._updating_pages = False
+
         # Setup container
         self.page_container.setMinimumHeight(0)
         self.page_container.resizeEvent = self.container_resize_event
@@ -178,6 +181,77 @@ class PDFViewer:
         for model in list(self.page_models.values()):
             model.clear_cache()
 
+    def apply_zoom_to_pages(self, new_zoom: float):
+        """
+        Update zoom on all existing pages WITHOUT destroying them.
+        """
+        self.zoom = new_zoom
+
+        if not self.loaded_pages or self.page_height is None:
+            return False
+
+        # Clear page model caches so they re-render at new zoom
+        for model in self.page_models.values():
+            model.clear_cache()
+
+        # Re-render each label and get ACTUAL dimensions from pixmap
+        actual_page_height = None
+        container_width = self.page_container.width()
+
+        for idx, label in list(self.loaded_pages.items()):
+            if not self._is_widget_valid(label):
+                continue
+
+            # Re-render at new zoom
+            label.set_zoom(new_zoom)
+
+            pixmap = label.pixmap()
+            if pixmap:
+                # Get actual height from first rendered page
+                if actual_page_height is None:
+                    actual_page_height = pixmap.height()
+
+                # Position using ACTUAL rendered height
+                x = (container_width - pixmap.width()) // 2
+                y = idx * (actual_page_height + self.page_spacing)
+                label.setGeometry(x, y, pixmap.width(), pixmap.height())
+
+        # Update page_height with actual rendered height
+        if actual_page_height:
+            self.page_height = actual_page_height
+            self.main_window.page_height = actual_page_height
+
+            # Update container height
+            if self.pdf_reader_core.total_pages > 0:
+                total_height = (
+                    self.pdf_reader_core.total_pages
+                    * (self.page_height + self.page_spacing)
+                    - self.page_spacing
+                )
+                self.page_container.setMinimumHeight(total_height)
+
+        return True
+
+    def apply_dark_mode_to_pages(self, dark_mode: bool):
+        """
+        Update dark mode on all existing pages WITHOUT destroying them.
+        """
+        self.dark_mode = dark_mode
+
+        if not self.loaded_pages:
+            return False
+
+        # Clear page model caches
+        for model in self.page_models.values():
+            model.clear_cache()
+
+        # Update each existing label in place
+        for label in list(self.loaded_pages.values()):
+            if self._is_widget_valid(label):
+                label.set_dark_mode(dark_mode)
+
+        return True
+
     def refresh_page(self, page_index: int):
         """Refresh a single page (re-render with current settings)."""
         # Save scroll position to prevent jumping
@@ -225,41 +299,51 @@ class PDFViewer:
 
     def update_visible_pages(self, current_page_index: int):
         """Load and display pages near the current page."""
+        # Prevent re-entrant calls from scroll events during page loading
+        if self._updating_pages:
+            return
+
         if self.pdf_reader_core.doc is None or self.pdf_reader_core.total_pages == 0:
             return
 
-        if self.page_height is None:
-            if current_page_index not in self.loaded_pages:
-                self._load_and_display_page(current_page_index)
-                if self.page_height is None:
-                    return
+        self._updating_pages = True
 
-        total_pages = self.pdf_reader_core.total_pages
-        start_index = max(0, current_page_index - self.page_buffer)
-        end_index = min(total_pages - 1, current_page_index + self.page_buffer)
+        try:
+            if self.page_height is None:
+                if current_page_index not in self.loaded_pages:
+                    self._load_and_display_page(current_page_index)
+                    if self.page_height is None:
+                        return
 
-        # Find and unload pages outside buffer
-        pages_to_unload = [
-            idx
-            for idx in list(self.loaded_pages.keys())
-            if idx < start_index or idx > end_index
-        ]
+            total_pages = self.pdf_reader_core.total_pages
+            start_index = max(0, current_page_index - self.page_buffer)
+            end_index = min(total_pages - 1, current_page_index + self.page_buffer)
 
-        for idx in pages_to_unload:
-            if idx in self.loaded_pages:
-                label = self.loaded_pages.pop(idx)
-                self._safely_delete_label(label)
+            # Find and unload pages outside buffer
+            pages_to_unload = [
+                idx
+                for idx in list(self.loaded_pages.keys())
+                if idx < start_index or idx > end_index
+            ]
 
-            if idx in self.page_models:
-                self.page_models[idx].unload()
-                del self.page_models[idx]
+            for idx in pages_to_unload:
+                if idx in self.loaded_pages:
+                    label = self.loaded_pages.pop(idx)
+                    self._safely_delete_label(label)
 
-        # Load missing pages
-        for idx in range(start_index, end_index + 1):
-            if idx not in self.loaded_pages:
-                self._load_and_display_page(idx)
+                if idx in self.page_models:
+                    self.page_models[idx].unload()
+                    del self.page_models[idx]
 
-        self.selection_manager.set_page_models(self.page_models)
+            # Load missing pages
+            for idx in range(start_index, end_index + 1):
+                if idx not in self.loaded_pages:
+                    self._load_and_display_page(idx)
+
+            self.selection_manager.set_page_models(self.page_models)
+
+        finally:
+            self._updating_pages = False
 
     def _load_and_display_page(self, idx: int):
         """Render and display a single page."""

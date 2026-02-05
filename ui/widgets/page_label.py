@@ -332,7 +332,13 @@ class InteractivePageLabel(QLabel):
                 filled=self._drawing_filled,
             )
             main_window.annotation_manager.add_annotation(annotation)
-            main_window._refresh_current_page()
+
+            # Update annotations on THIS label in place - don't refresh/destroy the page!
+            annotations = main_window.annotation_manager.get_annotations_for_page(
+                self.page_model.page_index
+            )
+            self.set_annotations(annotations)
+            # Note: self.update() is called by _finish_drawing() after this returns
 
     # Paint methods
 
