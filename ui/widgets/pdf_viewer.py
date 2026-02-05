@@ -178,6 +178,74 @@ class PDFViewer:
         for model in list(self.page_models.values()):
             model.clear_cache()
 
+    def apply_zoom_to_pages(self, new_zoom: float):
+        """
+        Update zoom on all existing pages WITHOUT destroying them.
+        Much faster than clear_all() + update_visible_pages().
+        """
+        old_zoom = self.zoom
+        self.zoom = new_zoom
+
+        if not self.loaded_pages or self.page_height is None:
+            return False  # No pages to update
+
+        # Calculate new page height based on zoom ratio
+        zoom_ratio = new_zoom / old_zoom if old_zoom > 0 else 1.0
+        new_page_height = int(self.page_height * zoom_ratio)
+        self.page_height = new_page_height
+        self.main_window.page_height = new_page_height
+
+        # Update container height
+        if self.pdf_reader_core.total_pages > 0:
+            total_height = (
+                self.pdf_reader_core.total_pages
+                * (self.page_height + self.page_spacing)
+                - self.page_spacing
+            )
+            self.page_container.setMinimumHeight(total_height)
+
+        # Clear page model caches so they re-render at new zoom
+        for model in self.page_models.values():
+            model.clear_cache()
+
+        # Update each existing label in place
+        container_width = self.page_container.width()
+        for idx, label in list(self.loaded_pages.items()):
+            if not self._is_widget_valid(label):
+                continue
+
+            # This re-renders the page at new zoom
+            label.set_zoom(new_zoom)
+
+            # Reposition based on new dimensions
+            pixmap = label.pixmap()
+            if pixmap:
+                x = (container_width - pixmap.width()) // 2
+                y = idx * (self.page_height + self.page_spacing)
+                label.setGeometry(x, y, pixmap.width(), pixmap.height())
+
+        return True  # Successfully updated
+
+    def apply_dark_mode_to_pages(self, dark_mode: bool):
+        """
+        Update dark mode on all existing pages WITHOUT destroying them.
+        """
+        self.dark_mode = dark_mode
+
+        if not self.loaded_pages:
+            return False
+
+        # Clear page model caches
+        for model in self.page_models.values():
+            model.clear_cache()
+
+        # Update each existing label in place
+        for label in list(self.loaded_pages.values()):
+            if self._is_widget_valid(label):
+                label.set_dark_mode(dark_mode)
+
+        return True
+
     def refresh_page(self, page_index: int):
         """Refresh a single page (re-render with current settings)."""
         # Save scroll position to prevent jumping

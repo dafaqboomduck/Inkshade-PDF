@@ -628,68 +628,37 @@ class MainWindow(QMainWindow):
             self.zoom_lineedit.setText(str(current_zoom_percent))
 
     def _handle_zoom_change(self, new_zoom_percent: int):
-        """Handle zoom level change."""
+        """Handle zoom level change by updating existing pages in place."""
         try:
-            # Save current position BEFORE any changes
+            # Save scroll position BEFORE any changes
             current_page_index, offset_in_page = self.get_current_page_info()
-            target_page = current_page_index
             old_zoom = self.zoom
-            old_page_height = self.page_height
 
-            # Update zoom
+            # Calculate new zoom
             self.zoom = (new_zoom_percent / 100.0) * self.base_zoom
-            self.page_manager.set_zoom(self.zoom)
             self.view_controller.set_zoom(new_zoom_percent)
 
-            if self.pdf_reader.doc and old_page_height:
-                # Calculate zoom ratio and new dimensions
+            if self.pdf_reader.doc and self.page_height:
+                # Calculate zoom ratio for scroll restoration
                 zoom_ratio = self.zoom / old_zoom if old_zoom > 0 else 1.0
-                new_page_height = int(old_page_height * zoom_ratio)
                 new_offset = int(offset_in_page * zoom_ratio)
 
-                # Clear pages with IMMEDIATE deletion to prevent artifacts
-                self.page_manager.clear_all(keep_dimensions=True, immediate_delete=True)
-
-                # Pre-set the new page height to prevent scroll jump
-                self.page_manager.set_page_height(new_page_height)
-
-                # Process events to ensure old widgets are fully removed
-                QApplication.processEvents()
-
-                # Force repaint of container to clear any remnants
-                self.page_container.repaint()
-                self.scroll_area.viewport().repaint()
-                QApplication.processEvents()
-
-                # Pre-set scroll position BEFORE loading pages
-                if new_page_height:
+                # Update pages IN PLACE - no destroy/recreate!
+                if self.page_manager.apply_zoom_to_pages(self.zoom):
+                    # Restore scroll position with new dimensions
                     target_y = (
-                        target_page * (new_page_height + self.page_spacing)
+                        current_page_index * (self.page_height + self.page_spacing)
                     ) + new_offset
                     self.scroll_area.verticalScrollBar().setValue(int(target_y))
-
-                # Load pages around the TARGET page
-                self.update_visible_pages(desired_page=target_page)
-
-                # Process events to update layout
-                QApplication.processEvents()
-                self.page_container.updateGeometry()
-                self.scroll_area.updateGeometry()
+                else:
+                    # No pages exist yet, fall back to old method
+                    self.page_manager.set_zoom(self.zoom)
+                    self.update_visible_pages()
 
             elif self.pdf_reader.doc:
-                # First load or no previous height - use standard approach
-                self.page_manager.clear_all(immediate_delete=True)
-                QApplication.processEvents()
-                self.update_visible_pages(desired_page=target_page)
-                QApplication.processEvents()
-
-                if self.page_height:
-                    QTimer.singleShot(
-                        10,
-                        lambda: self._restore_scroll_position(
-                            target_page, offset_in_page
-                        ),
-                    )
+                # First load - set zoom and load pages
+                self.page_manager.set_zoom(self.zoom)
+                self.update_visible_pages()
 
         except (ValueError, IndexError):
             current_zoom_percent = int((self.zoom / self.base_zoom) * 100)
@@ -721,49 +690,18 @@ class MainWindow(QMainWindow):
             icon_path = "resources/icons/light-mode-icon.png"
             self.toggle_button.setToolTip("Switch to Dark Mode")
 
-        # Update button icon with proper coloring
         if os.path.exists(get_resource_path(icon_path)):
             pixmap = QPixmap(get_resource_path(icon_path))
             colored_pixmap = self._color_icon(pixmap)
             self.toggle_button.setIcon(QIcon(colored_pixmap))
 
-        # Apply theme
+        # Apply theme to window chrome
         self._apply_theme()
-        self.page_manager.set_dark_mode(self.dark_mode)
 
-        # Refresh pages if document is loaded
+        # Update existing pages IN PLACE - no destroy/recreate!
         if self.pdf_reader.doc:
-            # Save position BEFORE any changes
-            current_page_index, offset_in_page = self.get_current_page_info()
-            target_page = current_page_index
-            saved_page_height = self.page_height
-
-            # Clear pages with immediate deletion (theme doesn't change page size)
-            self.page_manager.clear_all(keep_dimensions=True, immediate_delete=True)
-
-            # Process events to ensure old widgets are fully removed
-            QApplication.processEvents()
-
-            # Force repaint
-            self.page_container.repaint()
-            self.scroll_area.viewport().repaint()
-            QApplication.processEvents()
-
-            # Pre-set scroll position BEFORE loading pages
-            if saved_page_height:
-                target_y = (
-                    target_page * (saved_page_height + self.page_spacing)
-                ) + offset_in_page
-                self.scroll_area.verticalScrollBar().setValue(int(target_y))
-
-            # Load pages around the TARGET page
-            self.update_visible_pages(desired_page=target_page)
-
-            # Force repaint
-            QApplication.processEvents()
-            if target_page in self.loaded_pages:
-                self.loaded_pages[target_page].repaint()
-            self.page_container.repaint()
+            self.page_manager.set_dark_mode(self.dark_mode)
+            self.page_manager.apply_dark_mode_to_pages(self.dark_mode)
 
     def _restore_and_repaint(self, current_page_index: int, offset_in_page: int):
         """Restore scroll position and repaint after theme change."""
