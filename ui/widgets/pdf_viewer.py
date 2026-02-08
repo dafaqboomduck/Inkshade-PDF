@@ -453,7 +453,12 @@ class PDFViewer:
         return current_page_index, offset_in_page
 
     def jump_to_page(self, page_num: int, y_offset: float = 0.0):
-        """Scroll to a specific page position."""
+        """Scroll to a specific page position.
+
+        Args:
+            page_num: 1-based page number
+            y_offset: Y-coordinate in top-left origin (already converted by _process_toc)
+        """
         if self.page_height is None or self.page_height == 0:
             return
 
@@ -465,10 +470,11 @@ class PDFViewer:
         if y_offset > 0:
             try:
                 page = self.pdf_reader_core.doc.load_page(page_num - 1)
-                page_rect = page.rect
-                pdf_page_height = page_rect.height
+                pdf_page_height = page.rect.height
 
                 if y_offset <= pdf_page_height:
+                    # y_offset is already in top-left coordinates
+                    # Just normalize and scale to pixel space
                     normalized_offset = y_offset / pdf_page_height
                     pixel_offset = normalized_offset * self.page_height
 
