@@ -450,7 +450,7 @@ class NarrationPipeline:
                     if inst.text:
                         try:
                             wav = engine.synthesize(
-                                inst.text, speed_factor=p.speed_factor
+                                inst.text, speed_factor=1.0
                             )
                             page_builder.add_speech(wav)
                             dur = engine.get_audio_duration(wav)
@@ -757,14 +757,13 @@ class NarrationPipeline:
 
             if inst.text:
                 try:
-                    wav = engine.synthesize(inst.text, speed_factor=p.speed_factor)
+                    wav = engine.synthesize(inst.text, speed_factor=1.0)
                     builder.add_speech(wav)
                     spoken += 1
                     dur = engine.get_audio_duration(wav)
                     logger.debug(
-                        "[%s %.2fx] %.1fs | %s",
+                        "[%s 1.00x] %.1fs | %s",
                         inst.role.name,
-                        p.speed_factor,
                         dur,
                         inst.text[:65].replace("\n", " "),
                     )

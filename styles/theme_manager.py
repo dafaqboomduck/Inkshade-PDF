@@ -87,6 +87,10 @@ class ThemeManager:
         Returns:
             Complete CSS stylesheet string
         """
+        from utils.resource_loader import get_icon_path
+        spin_up_icon = get_icon_path("spin-up.png").replace("\\", "/")
+        spin_down_icon = get_icon_path("spin-down.png").replace("\\", "/")
+
         return f"""
             /* --- GENERAL STYLES --- */
             QMainWindow, QWidget, QLineEdit, QLabel, QFrame {{
@@ -179,6 +183,35 @@ class ThemeManager:
             }}
             QSpinBox:focus {{
                 border: 1px solid {theme.accent_primary};
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
+                subcontrol-origin: border;
+                width: 20px;
+                background-color: {theme.bg_tertiary};
+                border: none;
+                border-left: 1px solid {theme.border_primary};
+            }}
+            QSpinBox::up-button {{
+                subcontrol-position: top right;
+                border-top-right-radius: 4px;
+                border-bottom: 1px solid {theme.border_primary};
+            }}
+            QSpinBox::down-button {{
+                subcontrol-position: bottom right;
+                border-bottom-right-radius: 4px;
+            }}
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+                background-color: {theme.accent_primary};
+            }}
+            QSpinBox::up-arrow {{
+                image: url("{spin_up_icon}");
+                width: 10px;
+                height: 6px;
+            }}
+            QSpinBox::down-arrow {{
+                image: url("{spin_down_icon}");
+                width: 10px;
+                height: 6px;
             }}
             
             /* --- GROUPBOX --- */
