@@ -5,7 +5,6 @@ Lets the user choose voice, reading speed, page range,
 and content filtering options before starting narration.
 """
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,7 +13,6 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QSlider,
     QSpinBox,
     QVBoxLayout,
 )
@@ -58,32 +56,14 @@ class NarrationSettingsDialog(QDialog):
 
         layout.addWidget(voice_group)
 
-        # --- Speed section ---
-        speed_group = QGroupBox("Reading Speed")
-        speed_inner = QVBoxLayout(speed_group)
-
-        speed_row = QHBoxLayout()
-        self.speed_slider = QSlider(Qt.Horizontal)
-        self.speed_slider.setMinimum(50)
-        self.speed_slider.setMaximum(200)
-        self.speed_slider.setValue(int(self._controller._config.speed_multiplier * 100))
-        self.speed_slider.setTickInterval(25)
-        self.speed_slider.setTickPosition(QSlider.TicksBelow)
-        self.speed_label = QLabel(f"{self.speed_slider.value() / 100:.2f}×")
-        self.speed_slider.valueChanged.connect(
-            lambda v: self.speed_label.setText(f"{v / 100:.2f}×")
+        # --- Speed note ---
+        speed_note = QLabel(
+            "Playback speed can be adjusted in the player bar during narration "
+            "without affecting audio quality."
         )
-        speed_row.addWidget(self.speed_slider)
-        speed_row.addWidget(self.speed_label)
-        speed_inner.addLayout(speed_row)
-
-        note = QLabel("This controls synthesis speed (prosody). "
-                       "Playback speed is adjustable in the player bar.")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: #8899AA; font-size: 11px;")
-        speed_inner.addWidget(note)
-
-        layout.addWidget(speed_group)
+        speed_note.setWordWrap(True)
+        speed_note.setStyleSheet("color: #8899AA; font-size: 11px; padding: 4px 0;")
+        layout.addWidget(speed_note)
 
         # --- Page range section ---
         page_group = QGroupBox("Page Range")
@@ -161,7 +141,7 @@ class NarrationSettingsDialog(QDialog):
         """Apply settings to controller config and accept."""
         self._controller.update_config(
             voice_name=self.voice_combo.currentText(),
-            speed_multiplier=self.speed_slider.value() / 100.0,
+            speed_multiplier=1.0,
             skip_footnotes=self.skip_footnotes_check.isChecked(),
             skip_captions=self.skip_captions_check.isChecked(),
             strip_references=self.strip_refs_check.isChecked(),

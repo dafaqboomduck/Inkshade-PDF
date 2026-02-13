@@ -175,17 +175,28 @@ class ThemeManager:
                 border-radius: 4px;
                 padding: 4px 8px;
                 color: {theme.text_primary};
+                min-height: 20px;
             }}
             QSpinBox:focus {{
                 border: 1px solid {theme.accent_primary};
             }}
-            QSpinBox::up-button, QSpinBox::down-button {{
-                background-color: {theme.bg_tertiary};
-                border: none;
-                border-radius: 2px;
+            
+            /* --- GROUPBOX --- */
+            QGroupBox {{
+                font-weight: bold;
+                color: {theme.text_primary};
+                border: 1px solid {theme.border_primary};
+                border-radius: 6px;
+                margin-top: 12px;
+                padding: 12px 8px 8px 8px;
             }}
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
-                background-color: {theme.bg_secondary};
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 12px;
+                padding: 0 6px;
+                background-color: {theme.bg_primary};
+                color: {theme.text_secondary};
             }}
             
             /* --- CHECKBOX --- */
@@ -206,6 +217,79 @@ class ThemeManager:
             }}
             QCheckBox::indicator:hover {{
                 border-color: {theme.text_secondary};
+            }}
+            
+            /* --- COMBOBOX --- */
+            QComboBox {{
+                background-color: {theme.bg_secondary};
+                border: 1px solid {theme.border_primary};
+                border-radius: 4px;
+                padding: 5px 28px 5px 8px;
+                color: {theme.text_primary};
+                min-height: 20px;
+            }}
+            QComboBox:focus {{
+                border: 1px solid {theme.accent_primary};
+            }}
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 24px;
+                border-left: 1px solid {theme.border_primary};
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+                background-color: {theme.bg_tertiary};
+            }}
+            QComboBox::down-arrow {{
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid {theme.text_primary};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {theme.bg_secondary};
+                border: 1px solid {theme.border_primary};
+                color: {theme.text_primary};
+                selection-background-color: {theme.accent_primary};
+                selection-color: #ffffff;
+                outline: none;
+            }}
+            
+            /* --- SLIDER --- */
+            QSlider::groove:horizontal {{
+                border: none;
+                height: 6px;
+                background-color: {theme.bg_tertiary};
+                border-radius: 3px;
+            }}
+            QSlider::handle:horizontal {{
+                background-color: {theme.accent_primary};
+                border: none;
+                width: 16px;
+                height: 16px;
+                margin: -5px 0;
+                border-radius: 8px;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background-color: {theme.accent_hover};
+            }}
+            QSlider::sub-page:horizontal {{
+                background-color: {theme.accent_primary};
+                border-radius: 3px;
+            }}
+            
+            /* --- DIALOGBUTTONBOX / PUSHBUTTON --- */
+            QDialogButtonBox QPushButton {{
+                background-color: {theme.bg_tertiary};
+                color: {theme.text_primary};
+                border: 1px solid {theme.border_primary};
+                border-radius: 4px;
+                padding: 6px 16px;
+                min-width: 80px;
+            }}
+            QDialogButtonBox QPushButton:hover {{
+                background-color: {theme.accent_primary};
+                color: #ffffff;
+                border-color: {theme.accent_primary};
             }}
             
             /* --- SCROLL AREA --- */
