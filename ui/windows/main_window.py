@@ -1366,10 +1366,8 @@ class MainWindow(QMainWindow):
                 pass
 
     def _scroll_to_narration_block(self, page_index: int, char_bboxes: list):
-        """Scroll the viewport so the currently-narrated block stays visible.
-
-        Only scrolls if the block is outside the visible area, to avoid
-        jarring movement when the text is already on screen.
+        """Scroll the viewport so the currently-narrated block stays in the
+        top 75 % of the visible area (the bottom is covered by the player bar).
 
         Args:
             page_index: 0-based page index of the narrated block.
@@ -1393,18 +1391,18 @@ class MainWindow(QMainWindow):
         vsb = pm.scroll_area.verticalScrollBar()
         viewport_h = pm.scroll_area.viewport().height()
         scroll_top = vsb.value()
-        scroll_bottom = scroll_top + viewport_h
 
-        # Margin so the block isn't flush against the edge
-        margin = min(60, viewport_h * 0.15)
+        # The usable region is the top 75 % of the viewport (bottom 25 %
+        # is hidden behind the narration player bar).
+        usable_bottom = scroll_top + viewport_h * 0.75
+        top_margin = 30  # small margin so text isn't flush at the top
 
-        # Only scroll if the block is not fully visible (with margin)
-        if block_top_px >= scroll_top + margin and block_bottom_px <= scroll_bottom - margin:
-            return  # Already comfortably in view
+        # Only scroll if the block is already in the usable zone
+        if block_top_px >= scroll_top + top_margin and block_bottom_px <= usable_bottom:
+            return  # Already comfortably in the visible top 75 %
 
-        # Centre the block vertically in the viewport
-        block_center = (block_top_px + block_bottom_px) / 2
-        target = int(block_center - viewport_h / 2)
+        # Place the block roughly a third of the way down the usable zone
+        target = int(block_top_px - viewport_h * 0.25)
         target = max(0, min(target, vsb.maximum()))
 
         vsb.setValue(target)
