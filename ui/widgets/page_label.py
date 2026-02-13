@@ -14,7 +14,7 @@ from PyQt5.QtGui import (
     QPainterPath,
     QPen,
 )
-from PyQt5.QtWidgets import QApplication, QLabel, QToolTip
+from PyQt5.QtWidgets import QAction, QApplication, QLabel, QMenu, QToolTip
 
 from core.annotations import AnnotationType
 from core.page.link_layer import LinkInfo, LinkType
@@ -45,6 +45,7 @@ class InteractivePageLabel(QLabel):
     link_hovered = pyqtSignal(object)  # LinkInfo or None
     selection_changed = pyqtSignal()
     character_clicked = pyqtSignal(int, object)  # page_index, CharacterInfo
+    narration_from_here_requested = pyqtSignal(int)  # page_index
 
     def __init__(
         self,
@@ -84,6 +85,9 @@ class InteractivePageLabel(QLabel):
         # Search highlights
         self.search_highlights = []
         self.current_search_highlight_index = -1
+
+        # Narration highlight
+        self.narration_highlight_chars: list = []
 
         # Link handler reference
         self.link_handler: Optional["LinkNavigationHandler"] = None
@@ -353,6 +357,7 @@ class InteractivePageLabel(QLabel):
             self._paint_search_highlights(painter)
             self._paint_link_hover(painter)
             self._paint_annotations(painter)
+            self._paint_narration_highlight(painter)
 
             if self._is_drawing and self._drawing_points:
                 self._paint_drawing_preview(painter)
@@ -474,6 +479,25 @@ class InteractivePageLabel(QLabel):
             elif ann.annotation_type == AnnotationType.FREEHAND:
                 self._paint_freehand(painter, ann)
 
+    def _paint_narration_highlight(self, painter: QPainter):
+        """Paint translucent blue overlay over currently-narrated characters."""
+        if not self.narration_highlight_chars:
+            return
+
+        color = QColor(66, 133, 244, 70)  # Google-blue, translucent
+        painter.setBrush(QBrush(color))
+        painter.setPen(Qt.NoPen)
+
+        for char_rect in self.narration_highlight_chars:
+            # char_rect expected as (x0, y0, x1, y1) in page coords
+            screen_rect = QRectF(
+                char_rect[0] * self.zoom,
+                char_rect[1] * self.zoom,
+                (char_rect[2] - char_rect[0]) * self.zoom,
+                (char_rect[3] - char_rect[1]) * self.zoom,
+            )
+            painter.drawRect(screen_rect)
+
     def _paint_highlight(self, painter: QPainter, ann):
         """Paint a highlight annotation."""
         color = QColor(ann.color[0], ann.color[1], ann.color[2], 100)
@@ -542,3 +566,35 @@ class InteractivePageLabel(QLabel):
     def get_selected_text(self) -> str:
         """Get selected text on this page."""
         return self.selection_manager.get_selected_text()
+
+    # ------------------------------------------------------------------
+    # Context menu
+    # ------------------------------------------------------------------
+
+    def contextMenuEvent(self, event):
+        """Show right-click context menu with narration option."""
+        menu = QMenu(self)
+
+        narrate_action = QAction("\U0001F50A Start Narration From Here", self)
+        narrate_action.triggered.connect(
+            lambda: self.narration_from_here_requested.emit(
+                self.page_model.page_index
+            )
+        )
+        menu.addAction(narrate_action)
+
+        menu.exec_(event.globalPos())
+
+    # ------------------------------------------------------------------
+    # Narration highlight
+    # ------------------------------------------------------------------
+
+    def set_narration_highlight(self, characters: list):
+        """Set characters to highlight during narration playback."""
+        self.narration_highlight_chars = characters
+        self.update()
+
+    def clear_narration_highlight(self):
+        """Clear narration highlight."""
+        self.narration_highlight_chars = []
+        self.update()

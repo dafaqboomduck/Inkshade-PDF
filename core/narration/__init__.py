@@ -1,11 +1,10 @@
 """
-Inkshade PDF Narration pipeline.
+Qt-aware narration components: worker thread and controller.
 
-Layout detection, reading script generation, TTS synthesis, and audio
-assembly for producing narrated audio from PDF documents.
+Re-exports the backend pipeline types for convenience.
 """
 
-from .pipeline import (
+from narration.pipeline import (
     NarrationCallbacks,
     NarrationConfig,
     NarrationPipeline,
@@ -13,10 +12,13 @@ from .pipeline import (
     PageNarrationResult,
 )
 
+from .narration_worker import NarrationWorker
+
 __all__ = [
     "NarrationCallbacks",
     "NarrationConfig",
     "NarrationPipeline",
     "NarrationResult",
+    "NarrationWorker",
     "PageNarrationResult",
 ]

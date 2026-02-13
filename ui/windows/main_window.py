@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
 from controllers import (
     AnnotationController,
     LinkNavigationHandler,
+    NarrationController,
     UserInputHandler,
     ViewController,
 )
@@ -46,7 +47,7 @@ from styles import ThemeManager
 from ui.toolbars import AnnotationToolbar, DrawingToolbar, SearchBar
 
 # UI imports
-from ui.widgets import PDFViewer, TOCWidget
+from ui.widgets import NarrationPlayerBar, PDFViewer, TOCWidget
 
 # Utils and styles
 from utils import get_icon_path, get_resource_path
@@ -156,6 +157,12 @@ class MainWindow(QMainWindow):
         # But we can also access it if needed:
         self.link_handler = self.page_manager.link_handler
 
+        # Narration controller (only if QtMultimedia is available)
+        if NarrationController is not None:
+            self.narration_controller = NarrationController(self)
+        else:
+            self.narration_controller = None
+
     def _setup_window(self):
         """Setup main window properties."""
         self.setWindowTitle("Inkshade PDF")
@@ -238,6 +245,11 @@ class MainWindow(QMainWindow):
         self._add_toolbar_button("draw-icon.png", "Draw", self.show_drawing_toolbar)
         self._add_toolbar_button(
             "save-icon.png", "Save PDF (Ctrl+S)", self.save_annotations_to_pdf
+        )
+
+        # Narration
+        self.narrate_button = self._add_toolbar_button(
+            "narrate-icon.png", "Narrate PDF (Ctrl+Shift+N)", self._start_narration_flow
         )
 
         # Theme toggle
@@ -325,6 +337,14 @@ class MainWindow(QMainWindow):
         self.drawing_toolbar.tool_changed.connect(self._on_drawing_tool_changed)
         self.drawing_toolbar.raise_()
 
+        # Narration player bar (bottom bar)
+        self.narration_player_bar = NarrationPlayerBar(self)
+        if self.narration_controller:
+            self.narration_player_bar.bind_controller(self.narration_controller)
+        self.narration_player_bar.stop_requested.connect(self._on_narration_playback_stopped)
+        self.narration_player_bar.export_requested.connect(self._export_narration_audio)
+        self.narration_player_bar.apply_theme(self.dark_mode)
+
     def _setup_layout(self):
         """Setup the main window layout."""
         # Horizontal layout for TOC and content
@@ -360,6 +380,13 @@ class MainWindow(QMainWindow):
             self._on_annotations_changed
         )
 
+        # Narration controller connections
+        if self.narration_controller:
+            self.narration_controller.narration_error.connect(self._on_narration_error)
+            self.narration_controller.playback_started.connect(self._on_narration_playback_started)
+            self.narration_controller.playback_stopped.connect(self._on_narration_playback_stopped)
+            self.narration_controller.instruction_changed.connect(self._on_narration_instruction_changed)
+
         # TOC connections
         self.toc_widget.toc_link_clicked.connect(self._handle_toc_click)
 
@@ -377,6 +404,10 @@ class MainWindow(QMainWindow):
         for toolbar in [self.search_bar, self.annotation_toolbar, self.drawing_toolbar]:
             ThemeManager.apply_theme(toolbar, self.dark_mode)
 
+        # Apply theme to narration player bar
+        if hasattr(self, 'narration_player_bar'):
+            self.narration_player_bar.apply_theme(self.dark_mode)
+
         self.theme_changed.emit(self.dark_mode)
 
     def _update_toolbar_positions(self):
@@ -387,6 +418,17 @@ class MainWindow(QMainWindow):
 
         for toolbar in [self.search_bar, self.annotation_toolbar, self.drawing_toolbar]:
             toolbar.move(x, y)
+
+        # Position narration player bar at the bottom of the scroll area
+        if hasattr(self, 'narration_player_bar'):
+            sa_geom = self.scroll_area.geometry()
+            bar_w = sa_geom.width()
+            bar_h = self.narration_player_bar.height()
+            self.narration_player_bar.setFixedWidth(bar_w)
+            self.narration_player_bar.move(
+                sa_geom.x(),
+                sa_geom.y() + sa_geom.height() - bar_h,
+            )
 
     def create_icon_button(
         self, icon_path: str, tooltip: str, parent: QWidget = None
@@ -506,6 +548,10 @@ class MainWindow(QMainWindow):
 
         # Clear selection before closing
         self.page_manager.clear_selection()
+
+        # Stop narration if running
+        if self.narration_controller and self.narration_controller.is_running():
+            self.narration_controller.stop()
 
         # Close document
         self.pdf_reader.close_document()
@@ -1215,6 +1261,162 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.information(self, "No Selection", "No text has been selected.")
 
+    # Narration Methods
+
+    def _start_narration_flow(self, start_page: int = 0):
+        """Entry point for narration — shows settings then starts."""
+        if not self.narration_controller:
+            QMessageBox.information(
+                self, "Narration Unavailable",
+                "Narration is not available. Please install PyQt5 multimedia support\n"
+                "(e.g. 'sudo apt install libqt5multimedia5-plugins pulseaudio-utils libpulse-mainloop-glib0').",
+            )
+            return
+
+        if not self.pdf_reader.is_loaded():
+            QMessageBox.information(
+                self, "No PDF", "Please open a PDF file before narrating."
+            )
+            return
+
+        if self.narration_controller.is_running():
+            reply = QMessageBox.question(
+                self,
+                "Narration Running",
+                "Narration is already in progress. Stop and start a new one?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+            self.narration_controller.stop()
+
+        # Show settings dialog
+        from ui.dialogs.narration_settings_dialog import NarrationSettingsDialog
+
+        dialog = NarrationSettingsDialog(
+            controller=self.narration_controller,
+            total_pages=self.pdf_reader.total_pages,
+            start_page=start_page,
+            parent=self,
+        )
+
+        if dialog.exec_() != dialog.Accepted:
+            return
+
+        # Start narration
+        self.narration_controller.start_narration(
+            self.current_file_path, start_page=dialog.selected_start_page
+        )
+
+    def _on_narration_error(self, message: str):
+        """Handle narration errors."""
+        QMessageBox.critical(self, "Narration Error", message)
+
+    def _on_narration_playback_started(self, page_index: int):
+        """Scroll to the page being narrated."""
+        # Show narration player bar
+        if hasattr(self, "narration_player_bar"):
+            self.narration_player_bar.show()
+            self.narration_player_bar.raise_()
+            self._update_toolbar_positions()
+
+        # Auto-scroll to the page being narrated
+        if hasattr(self, "narration_player_bar") and self.narration_player_bar.auto_scroll_enabled:
+            self.page_manager.jump_to_page(page_index + 1)
+
+    def _on_narration_playback_stopped(self):
+        """Hide narration player bar and clear highlights."""
+        if hasattr(self, "narration_player_bar"):
+            self.narration_player_bar.hide()
+        self._clear_narration_highlights()
+
+    def _on_narration_instruction_changed(self, page_index, instruction_index, characters):
+        """Highlight the currently-narrated text on the page."""
+        # Clear highlights on all pages first
+        self._clear_narration_highlights()
+
+        # Set highlights on the active page
+        label = self.loaded_pages.get(page_index)
+        if label:
+            char_bboxes = [c.bbox for c in characters if hasattr(c, "bbox")]
+            label.set_narration_highlight(char_bboxes)
+
+    def _clear_narration_highlights(self):
+        """Remove narration highlights from all loaded page labels."""
+        for label in self.loaded_pages.values():
+            try:
+                if label.narration_highlight_chars:
+                    label.clear_narration_highlight()
+            except RuntimeError:
+                pass
+
+    def _export_narration_audio(self):
+        """Export narration audio to an MP3/WAV file using a background worker."""
+        if not self.narration_controller:
+            return
+
+        audio_queue = self.narration_controller.get_audio_queue()
+        if not audio_queue:
+            QMessageBox.information(
+                self, "No Audio", "No narration audio is available to export."
+            )
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Narration Audio",
+            os.path.splitext(self.current_file_path)[0] + "_narration.mp3"
+            if self.current_file_path
+            else "narration.mp3",
+            "MP3 Files (*.mp3);;WAV Files (*.wav)",
+        )
+
+        if not output_path:
+            return
+
+        from controllers.narration_controller import ExportAudioWorker
+
+        page_order = self.narration_controller.get_page_order()
+
+        progress = QProgressDialog(
+            "Exporting narration audio...", "Cancel", 0, len(page_order), self
+        )
+        progress.setWindowTitle("Export Audio")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        worker = ExportAudioWorker(
+            audio_queue=dict(audio_queue),
+            page_order=list(page_order),
+            output_path=output_path,
+            parent=self,
+        )
+
+        worker.export_progress.connect(lambda cur, tot: progress.setValue(cur))
+
+        def _on_finished(path):
+            progress.close()
+            QMessageBox.information(
+                self,
+                "Export Complete",
+                f"Narration audio saved to:\n{path}",
+            )
+
+        def _on_error(msg):
+            progress.close()
+            QMessageBox.critical(
+                self, "Export Error", f"Failed to export audio:\n{msg}"
+            )
+
+        worker.export_finished.connect(_on_finished)
+        worker.export_error.connect(_on_error)
+        worker.finished.connect(worker.deleteLater)
+
+        # Keep reference so it's not garbage-collected
+        self._export_worker = worker
+        worker.start()
+
     # Event Handlers
 
     def keyPressEvent(self, event):
@@ -1237,6 +1439,11 @@ class MainWindow(QMainWindow):
                 self.page_manager.select_all_on_page(self.current_page_index)
                 event.accept()
                 return
+            elif event.key() == Qt.Key_N and event.modifiers() & Qt.ShiftModifier:
+                # Ctrl+Shift+N → Narrate PDF
+                self._start_narration_flow()
+                event.accept()
+                return
 
         # Escape to clear selection
         if event.key() == Qt.Key_Escape:
@@ -1257,6 +1464,12 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Handle window close with one-time warning per session."""
+        # Stop narration if running
+        if self.narration_controller:
+            if self.narration_controller.is_running():
+                self.narration_controller.stop()
+            self.narration_controller.cleanup()
+
         if self.annotation_manager.has_unsaved_changes:
             # Use warning manager for potentially one-time warning
             result = warning_manager.show_save_discard_cancel(

@@ -26,11 +26,13 @@ Usage::
     print(result.summary())
 """
 
+import io
 import logging
 import time
-from dataclasses import dataclass
+import wave
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, Generator, List, Optional, Tuple
 
 from tqdm import tqdm
 
@@ -44,6 +46,7 @@ from narration.layout.models import ClassifiedBlock, LayoutLabel
 from narration.script.models import ReadingInstruction, TextRole
 from narration.script.reading_script import (
     build_document_script,
+    build_page_script,
     preview_script,
 )
 from narration.tts.audio_builder import AudioBuilder
@@ -52,6 +55,38 @@ from narration.tts.model_manager import ModelManager
 from narration.utils.pdf_adapter import PDFAdapter
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# Callbacks
+# ------------------------------------------------------------------
+
+
+@dataclass
+class NarrationCallbacks:
+    """Progress / cancellation callbacks for the narration pipeline."""
+
+    on_phase: Optional[Callable[[str], None]] = None
+    on_page: Optional[Callable[[int, int], None]] = None        # (current, total)
+    on_segment: Optional[Callable[[int, int], None]] = None     # (current, total)
+    on_cancelled: Optional[Callable[[], bool]] = None           # returns True if cancelled
+
+
+# ------------------------------------------------------------------
+# Page-level result
+# ------------------------------------------------------------------
+
+
+@dataclass
+class PageNarrationResult:
+    """Result for a single narrated page, yielded during streaming."""
+
+    page_index: int
+    wav_bytes: bytes
+    instructions: List[ReadingInstruction] = field(default_factory=list)
+    timing_offsets: List[Tuple[float, float, int]] = field(default_factory=list)
+    word_count: int = 0
+    duration_seconds: float = 0.0
 
 
 # ------------------------------------------------------------------
@@ -240,34 +275,263 @@ class NarrationPipeline:
         result = NarrationResult(output_path=output_path)
         is_wav = output_path.lower().endswith(".wav")
 
-        detector = self._ensure_detector()
+        # Use narrate_pages() internally and concatenate all page audio
         engine = self._ensure_tts()
         builder = AudioBuilder(sample_rate=engine.sample_rate)
 
-        # -- Phase 1: Layout detection & classification ----------------
-        all_classified, page_heights, result = self._phase_layout(
-            pdf_path,
-            detector,
-            result,
-        )
+        gen = self.narrate_pages(pdf_path)
+        page_results: List[PageNarrationResult] = []
+        final_result = None
 
-        # -- Phase 2: Reading script -----------------------------------
-        script, result = self._phase_script(all_classified, result)
+        try:
+            while True:
+                page_result = next(gen)
+                page_results.append(page_result)
+                if page_result.wav_bytes and len(page_result.wav_bytes) > 44:
+                    builder.add_speech(page_result.wav_bytes)
+        except StopIteration as e:
+            final_result = e.value
+
+        if final_result is None:
+            final_result = result
+
+        final_result.output_path = output_path
 
         if cfg.debug_script:
-            logger.info("\n%s", preview_script(script))
-            result.elapsed_seconds = time.perf_counter() - t_total
-            return result
-
-        # -- Phase 3: TTS synthesis & audio assembly --------------------
-        result = self._phase_synthesis(script, engine, builder, result)
+            final_result.elapsed_seconds = time.perf_counter() - t_total
+            return final_result
 
         # -- Phase 4: Post-processing & export --------------------------
-        result = self._phase_export(builder, output_path, is_wav, result)
+        final_result = self._phase_export(builder, output_path, is_wav, final_result)
 
+        final_result.elapsed_seconds = time.perf_counter() - t_total
+        logger.info("\n%s", final_result.summary())
+        return final_result
+
+    # ------------------------------------------------------------------
+    # Page-level streaming entry point
+    # ------------------------------------------------------------------
+
+    def narrate_pages(
+        self,
+        pdf_path: str,
+        callbacks: Optional[NarrationCallbacks] = None,
+    ) -> Generator[PageNarrationResult, None, NarrationResult]:
+        """
+        Yield per-page audio as each page completes.
+
+        This is the streaming counterpart of :meth:`narrate`.  Instead
+        of producing one monolithic audio file, it yields a
+        :class:`PageNarrationResult` for every page as soon as layout
+        detection, script building, and TTS synthesis finish for that
+        page.
+
+        Yields:
+            :class:`PageNarrationResult` with ``page_index``,
+            ``wav_bytes``, ``instructions``, ``timing_offsets``,
+            ``word_count``, and ``duration_seconds``.
+
+        Returns:
+            Final :class:`NarrationResult` after all pages are done.
+        """
+        cb = callbacks or NarrationCallbacks()
+        t_total = time.perf_counter()
+        cfg = self.config
+        result = NarrationResult()
+
+        # --- Initialise components ------------------------------------
+        if cb.on_phase:
+            cb.on_phase("Loading layout detector")
+        detector = self._ensure_detector()
+
+        if cb.on_phase:
+            cb.on_phase("Loading TTS engine")
+        engine = self._ensure_tts()
+
+        # --- Determine page range -------------------------------------
+        if cb.on_phase:
+            cb.on_phase("Layout detection")
+
+        with PDFAdapter(pdf_path) as pdf:
+            result.total_pages = pdf.page_count
+            start = cfg.page_range[0] if cfg.page_range else 0
+            end = cfg.page_range[1] if cfg.page_range else pdf.page_count - 1
+            end = min(end, pdf.page_count - 1)
+            page_indices = list(range(start, end + 1))
+            total_pages = len(page_indices)
+
+            all_classified: Dict[int, List[ClassifiedBlock]] = {}
+            page_heights: Dict[int, float] = {}
+            total_spoken = 0
+            total_skipped = 0
+            total_words = 0
+            total_instructions = 0
+            t_layout = 0.0
+            t_script = 0.0
+            t_synthesis = 0.0
+
+            # --- Per-page loop ----------------------------------------
+            for page_num, page_idx in enumerate(page_indices):
+                # Check cancellation
+                if cb.on_cancelled and cb.on_cancelled():
+                    logger.info("Narration cancelled at page %d", page_idx)
+                    break
+
+                if cb.on_page:
+                    cb.on_page(page_num, total_pages)
+
+                # -- Phase 1: Layout for this page ---------------------
+                t0 = time.perf_counter()
+                classified, h = self._classify_single_page(
+                    pdf, page_idx, detector
+                )
+                all_classified[page_idx] = classified
+                page_heights[page_idx] = h
+                t_layout += time.perf_counter() - t0
+
+                if not classified:
+                    # Yield empty result for pages with no text
+                    yield PageNarrationResult(
+                        page_index=page_idx,
+                        wav_bytes=b"",
+                    )
+                    continue
+
+                # -- Phase 2: Script for this page ---------------------
+                t0 = time.perf_counter()
+                page_script = build_page_script(
+                    classified,
+                    page_idx,
+                    speed_multiplier=cfg.speed_multiplier,
+                    pause_multiplier=cfg.pause_multiplier,
+                    skip_footnotes=cfg.skip_footnotes,
+                    skip_captions=cfg.skip_captions,
+                    strip_references=cfg.strip_references,
+                )
+                t_script += time.perf_counter() - t0
+
+                if not page_script:
+                    yield PageNarrationResult(
+                        page_index=page_idx,
+                        wav_bytes=b"",
+                    )
+                    continue
+
+                if cb.on_phase:
+                    cb.on_phase(f"Synthesising page {page_idx + 1}")
+
+                # -- Phase 3: TTS for this page ------------------------
+                t0 = time.perf_counter()
+                page_builder = AudioBuilder(sample_rate=engine.sample_rate)
+                speakable = [inst for inst in page_script if not inst.should_skip]
+                timing_offsets: List[Tuple[float, float, int]] = []
+                cumulative_ms: float = 0.0
+                spoken = 0
+                skipped = 0
+                page_words = 0
+
+                for seg_idx, inst in enumerate(speakable):
+                    if cb.on_cancelled and cb.on_cancelled():
+                        break
+
+                    if cb.on_segment:
+                        cb.on_segment(seg_idx, len(speakable))
+
+                    p = inst.prosody
+
+                    # Silence before
+                    if p.pause_before > 0:
+                        silence_ms = p.pause_before * 1000
+                        page_builder.add_silence(p.pause_before)
+                        cumulative_ms += silence_ms
+
+                    # Synthesise speech
+                    start_ms = cumulative_ms
+                    if inst.text:
+                        try:
+                            wav = engine.synthesize(
+                                inst.text, speed_factor=p.speed_factor
+                            )
+                            page_builder.add_speech(wav)
+                            dur = engine.get_audio_duration(wav)
+                            cumulative_ms += dur * 1000
+                            spoken += 1
+                            page_words += len(inst.text.split())
+                        except Exception as e:
+                            logger.warning(
+                                "TTS failed on page %d segment: %s", page_idx, e
+                            )
+                            skipped += 1
+                            continue
+
+                    end_ms = cumulative_ms
+
+                    # Silence after
+                    if p.pause_after > 0:
+                        silence_ms = p.pause_after * 1000
+                        page_builder.add_silence(p.pause_after)
+                        cumulative_ms += silence_ms
+
+                    timing_offsets.append((start_ms, end_ms, seg_idx))
+
+                t_synthesis += time.perf_counter() - t0
+
+                # -- Collect page audio --------------------------------
+                total_spoken += spoken
+                total_skipped += skipped
+                total_words += page_words
+                total_instructions += len(page_script)
+                page_duration = page_builder.get_duration()
+
+                # Export page audio to WAV bytes
+                if page_builder.is_empty:
+                    page_wav = b""
+                else:
+                    page_wav = self._builder_to_wav_bytes(page_builder)
+
+                yield PageNarrationResult(
+                    page_index=page_idx,
+                    wav_bytes=page_wav,
+                    instructions=page_script,
+                    timing_offsets=timing_offsets,
+                    word_count=page_words,
+                    duration_seconds=page_duration,
+                )
+
+        # --- Finalise result ------------------------------------------
+        result.pages_processed = len(page_indices)
+        result.total_instructions = total_instructions
+        result.spoken_instructions = total_spoken
+        result.skipped_blocks = total_skipped
+        result.word_count = total_words
+        result.time_layout = t_layout
+        result.time_script = t_script
+        result.time_synthesis = t_synthesis
         result.elapsed_seconds = time.perf_counter() - t_total
-        logger.info("\n%s", result.summary())
+
+        logger.info(
+            "Page streaming complete: %d pages, %d spoken, %d skipped",
+            result.pages_processed,
+            total_spoken,
+            total_skipped,
+        )
         return result
+
+    @staticmethod
+    def _builder_to_wav_bytes(builder: AudioBuilder) -> bytes:
+        """Export an AudioBuilder's content to in-memory WAV bytes."""
+        import tempfile
+        import os
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        try:
+            builder.export_wav(tmp_path)
+            with open(tmp_path, "rb") as f:
+                return f.read()
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # ------------------------------------------------------------------
     # Phase 1 — Layout detection

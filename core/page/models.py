@@ -177,3 +177,52 @@ class BlockInfo:
     @property
     def text(self) -> str:
         return "\n".join(line.text for line in self.lines)
+
+    @property
+    def all_characters(self) -> List[CharacterInfo]:
+        """Return all characters across all lines in this block."""
+        chars: List[CharacterInfo] = []
+        for line in self.lines:
+            chars.extend(line.all_characters)
+        return chars
+
+    @property
+    def all_font_sizes(self) -> List[float]:
+        """Return all font sizes used in this block."""
+        sizes: List[float] = []
+        for line in self.lines:
+            for span in line.spans:
+                sizes.extend(c.font_size for c in span.characters)
+        return sizes
+
+    @property
+    def dominant_font_size(self) -> float:
+        """Return the most common font size in this block."""
+        sizes = self.all_font_sizes
+        if not sizes:
+            return 12.0
+        # Return the most frequent size
+        from collections import Counter
+        counts = Counter(sizes)
+        return counts.most_common(1)[0][0]
+
+    @property
+    def is_bold(self) -> bool:
+        """Check if the majority of text in this block is bold."""
+        bold_count = 0
+        total_count = 0
+        for line in self.lines:
+            for span in line.spans:
+                for c in span.characters:
+                    total_count += 1
+                    # Font flags bit 0x10 (16) indicates bold in MuPDF
+                    if span.flags & 0x10:
+                        bold_count += 1
+        if total_count == 0:
+            return False
+        return bold_count > total_count / 2
+
+    @property
+    def word_count(self) -> int:
+        """Return approximate word count of this block's text."""
+        return len(self.text.split())

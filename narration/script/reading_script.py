@@ -84,9 +84,28 @@ def build_page_script(
         if not segments:
             continue
 
+        # Get all characters for the block (for highlighting)
+        block_chars = cb.block.all_characters
+
+        # Build a map from text offset → character index for matching
+        # sentence segments to their corresponding characters.
+        char_cursor = 0  # tracks consumption through block_chars
+
         for i, segment_text in enumerate(segments):
             if not segment_text.strip():
                 continue
+
+            # Match this segment's characters from the block's character
+            # list by tracking offset.  Characters are consumed in order;
+            # each segment gets the next len(segment_text) matching chars.
+            seg_chars = []
+            if block_chars:
+                matched = 0
+                start = char_cursor
+                while char_cursor < len(block_chars) and matched < len(segment_text):
+                    seg_chars.append(block_chars[char_cursor])
+                    char_cursor += 1
+                    matched += 1
 
             # For multi-sentence body blocks: first sentence gets the
             # block's pause_before, last gets pause_after, middle
@@ -116,7 +135,7 @@ def build_page_script(
                     prosody=seg_prosody,
                     page_index=page_index,
                     block_index=block_idx,
-                    characters=cb.block.all_characters,
+                    characters=seg_chars,
                 )
             )
 

@@ -107,6 +107,11 @@ class PDFViewer:
             pass
 
         try:
+            label.narration_from_here_requested.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+
+        try:
             # Clear the pixmap to prevent visual artifacts
             label.clear()
             label.hide()
@@ -394,6 +399,7 @@ class PDFViewer:
 
         label.link_clicked.connect(self._on_link_clicked)
         label.selection_changed.connect(self._on_selection_changed)
+        label.narration_from_here_requested.connect(self._on_narration_from_here)
         label.setAlignment(Qt.AlignCenter)
 
         if self.page_height is None:
@@ -611,3 +617,8 @@ class PDFViewer:
                     label.update()
                 except RuntimeError:
                     pass
+
+    def _on_narration_from_here(self, page_index: int):
+        """Handle right-click 'Start Narration From Here' from a page label."""
+        if hasattr(self.main_window, "_start_narration_flow"):
+            self.main_window._start_narration_flow(start_page=page_index)
