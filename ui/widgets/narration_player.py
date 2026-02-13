@@ -3,8 +3,8 @@ Narration playback control bar — floating bottom bar with
 play/pause, stop, page info, seek, speed, and progress.
 """
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor
+from PyQt5.QtCore import Qt, pyqtSignal, QSize
+from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QComboBox,
     QFrame,
@@ -122,7 +122,7 @@ class NarrationPlayerBar(QFrame):
 
         # Auto-scroll toggle
         self.auto_scroll_btn = QToolButton(self)
-        self.auto_scroll_btn.setText("\U0001F4D6")  # 📖
+        self._set_icon(self.auto_scroll_btn, "auto-scroll-icon.png")
         self.auto_scroll_btn.setToolTip("Auto-scroll (on)")
         self.auto_scroll_btn.setCheckable(True)
         self.auto_scroll_btn.setChecked(True)
@@ -132,7 +132,7 @@ class NarrationPlayerBar(QFrame):
 
         # Export button (hidden until narration finishes)
         self.export_btn = QToolButton(self)
-        self.export_btn.setText("\U0001F4BE")  # 💾
+        self._set_icon(self.export_btn, "save-icon.png")
         self.export_btn.setToolTip("Export as MP3")
         self.export_btn.setFixedSize(36, 36)
         self.export_btn.clicked.connect(self.export_requested.emit)
@@ -153,6 +153,25 @@ class NarrationPlayerBar(QFrame):
         sep.setFrameShadow(QFrame.Sunken)
         sep.setStyleSheet("background-color: #555555; max-width: 1px;")
         return sep
+
+    def _set_icon(self, button: QToolButton, icon_name: str):
+        """Load an icon from resources, colour it to match the theme, and apply."""
+        from utils.resource_loader import get_icon_path
+        path = get_icon_path(icon_name)
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            return
+        # Colour the icon via the main window helper if available
+        main = self.parent()
+        if main and hasattr(main, "_color_icon"):
+            pixmap = main._color_icon(pixmap)
+        button.setIcon(QIcon(pixmap))
+        button.setIconSize(QSize(20, 20))
+
+    def refresh_icons(self):
+        """Re-colour icons after a theme change."""
+        self._set_icon(self.auto_scroll_btn, "auto-scroll-icon.png")
+        self._set_icon(self.export_btn, "save-icon.png")
 
     # ------------------------------------------------------------------
     # Controller binding

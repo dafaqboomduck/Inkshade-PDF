@@ -407,6 +407,7 @@ class MainWindow(QMainWindow):
         # Apply theme to narration player bar
         if hasattr(self, 'narration_player_bar'):
             self.narration_player_bar.apply_theme(self.dark_mode)
+            self.narration_player_bar.refresh_icons()
 
         self.theme_changed.emit(self.dark_mode)
 
@@ -1321,9 +1322,12 @@ class MainWindow(QMainWindow):
             self.narration_player_bar.raise_()
             self._update_toolbar_positions()
 
-        # Auto-scroll to the page being narrated
+        # Auto-scroll to the page being narrated (ensures page is loaded).
+        # Fine-grained block-level scrolling is handled by instruction_changed.
         if hasattr(self, "narration_player_bar") and self.narration_player_bar.auto_scroll_enabled:
-            self.page_manager.jump_to_page(page_index + 1)
+            current = self.page_manager.get_current_page_index()
+            if current != page_index:
+                self.page_manager.jump_to_page(page_index + 1)
 
     def _on_narration_playback_stopped(self):
         """Hide narration player bar and clear highlights."""
@@ -1332,14 +1336,24 @@ class MainWindow(QMainWindow):
         self._clear_narration_highlights()
 
     def _on_narration_instruction_changed(self, page_index, instruction_index, characters):
-        """Highlight the currently-narrated text on the page."""
+        """Highlight the currently-narrated text and scroll to keep it visible."""
         # Clear highlights on all pages first
         self._clear_narration_highlights()
 
+        char_bboxes = [c.bbox for c in characters if hasattr(c, "bbox")]
+
+        # Auto-scroll to keep the narrated block in view (before highlighting,
+        # so that the page label gets loaded if needed)
+        if (
+            char_bboxes
+            and hasattr(self, "narration_player_bar")
+            and self.narration_player_bar.auto_scroll_enabled
+        ):
+            self._scroll_to_narration_block(page_index, char_bboxes)
+
         # Set highlights on the active page
         label = self.loaded_pages.get(page_index)
-        if label:
-            char_bboxes = [c.bbox for c in characters if hasattr(c, "bbox")]
+        if label and char_bboxes:
             label.set_narration_highlight(char_bboxes)
 
     def _clear_narration_highlights(self):
@@ -1350,6 +1364,53 @@ class MainWindow(QMainWindow):
                     label.clear_narration_highlight()
             except RuntimeError:
                 pass
+
+    def _scroll_to_narration_block(self, page_index: int, char_bboxes: list):
+        """Scroll the viewport so the currently-narrated block stays visible.
+
+        Only scrolls if the block is outside the visible area, to avoid
+        jarring movement when the text is already on screen.
+
+        Args:
+            page_index: 0-based page index of the narrated block.
+            char_bboxes: List of (x0, y0, x1, y1) tuples in PDF coords.
+        """
+        pm = self.page_manager
+        if pm.page_height is None:
+            return
+
+        # Compute bounding box of all characters in PDF coordinates
+        y0 = min(b[1] for b in char_bboxes)
+        y1 = max(b[3] for b in char_bboxes)
+
+        # Convert to pixel coordinates in the scroll area
+        zoom = pm.zoom
+        page_top_px = page_index * (pm.page_height + pm.page_spacing)
+        block_top_px = page_top_px + y0 * zoom
+        block_bottom_px = page_top_px + y1 * zoom
+
+        # Current viewport bounds
+        vsb = pm.scroll_area.verticalScrollBar()
+        viewport_h = pm.scroll_area.viewport().height()
+        scroll_top = vsb.value()
+        scroll_bottom = scroll_top + viewport_h
+
+        # Margin so the block isn't flush against the edge
+        margin = min(60, viewport_h * 0.15)
+
+        # Only scroll if the block is not fully visible (with margin)
+        if block_top_px >= scroll_top + margin and block_bottom_px <= scroll_bottom - margin:
+            return  # Already comfortably in view
+
+        # Centre the block vertically in the viewport
+        block_center = (block_top_px + block_bottom_px) / 2
+        target = int(block_center - viewport_h / 2)
+        target = max(0, min(target, vsb.maximum()))
+
+        vsb.setValue(target)
+
+        # Ensure the target page is loaded after scroll
+        self.update_visible_pages()
 
     def _export_narration_audio(self):
         """Export narration audio to an MP3/WAV file using a background worker."""
