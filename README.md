@@ -43,7 +43,7 @@ pip install PyQt5 PyMuPDF pyperclip
 3. Launch the application:
 
 ```bash
-python main.py
+python inkshade/main.py
 ```
 
 ### Building a Standalone Executable
@@ -59,19 +59,19 @@ pip install pyinstaller
 2. Build the executable:
 
 ```bash
-pyinstaller --onefile --noconsole --name "Inkshade PDF" --icon "resources/icons/inkshade.ico" main.py
+pyinstaller --onefile --noconsole --name "Inkshade PDF" --icon "inkshade/resources/icons/inkshade.ico" inkshade/main.py
 ```
 
 The executable will be created in the `dist/` directory.
 
 > **Note:** Icons and other resources may not be visible in the built executable, since PyInstaller does not bundle data files by default. If that happens, add the `--add-data` flag to include the resources:
 >
-> - **Windows:** `--add-data "resources/icons;resources/icons"`
-> - **Linux / macOS:** `--add-data "resources/icons:resources/icons"`
+> - **Windows:** `--add-data "inkshade/resources/icons;resources/icons"`
+> - **Linux / macOS:** `--add-data "inkshade/resources/icons:resources/icons"`
 >
 > Full example (Windows):
 > ```bash
-> pyinstaller --onefile --noconsole --name "Inkshade PDF" --icon "resources/icons/inkshade.ico" --add-data "resources/icons;resources/icons" main.py
+> pyinstaller --onefile --noconsole --name "Inkshade PDF" --icon "inkshade/resources/icons/inkshade.ico" --add-data "inkshade/resources/icons;resources/icons" inkshade/main.py
 > ```
 
 ### Flatpak (Linux)
@@ -81,33 +81,6 @@ A Flatpak manifest is included in the `flathub/` directory for building and dist
 ### ⚠️ Antivirus Flagging Warning
 
 Some antivirus vendors may flag executables built with PyInstaller as malicious. This is a known false-positive issue with PyInstaller-packaged applications. The code is compiled directly from the publicly available source in this repository and is completely safe to use.
-
-## Project Structure
-
-```
-Inkshade-PDF/
-├── main.py                  # Application entry point
-├── core/                    # Core business logic
-│   ├── annotations/         # Annotation models, manager, undo/redo, persistence
-│   ├── document/            # PDF loading, rendering, and export
-│   ├── page/                # Page model, text layer, link layer
-│   ├── search/              # Search engine and highlighting
-│   ├── selection/           # Character-level selection manager
-│   └── export/              # PDF export worker
-├── controllers/             # Application controllers
-│   ├── annotation_controller.py
-│   ├── input_handler.py     # Keyboard and mouse input handling
-│   ├── link_handler.py      # Link navigation and security
-│   └── view_controller.py   # View state management
-├── ui/                      # User interface
-│   ├── windows/             # Main application window
-│   ├── widgets/             # PDF viewer, interactive page labels, TOC widget
-│   └── toolbars/            # Search bar, annotation toolbar, drawing toolbar
-├── styles/                  # Theme manager and color definitions
-├── utils/                   # Resource loading, warning manager, helpers
-├── resources/               # Icons and other assets
-└── flathub/                 # Flatpak build manifest and metadata
-```
 
 ## Contributing
 
