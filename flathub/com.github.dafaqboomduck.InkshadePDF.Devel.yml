@@ -44,8 +44,7 @@ modules:
     buildsystem: simple
     build-commands:
       - mkdir -p /app/lib/inkshade-pdf
-      - cp -r controllers core helpers styles ui utils *.py /app/lib/inkshade-pdf/
-      - cp -r resources /app/lib/inkshade-pdf/
+      - cp -r inkshade/* /app/lib/inkshade-pdf/
       - |
         cat > /app/bin/inkshade-pdf-devel << 'EOF'
         #!/bin/sh
@@ -54,7 +53,7 @@ modules:
         EOF
       - chmod +x /app/bin/inkshade-pdf-devel
       - install -Dm644 flathub/com.github.dafaqboomduck.InkshadePDF.Devel.desktop /app/share/applications/com.github.dafaqboomduck.InkshadePDF.Devel.desktop
-      - install -Dm644 resources/icons/inkshade.png /app/share/icons/hicolor/256x256/apps/com.github.dafaqboomduck.InkshadePDF.Devel.png
+      - install -Dm644 inkshade/resources/icons/inkshade.png /app/share/icons/hicolor/256x256/apps/com.github.dafaqboomduck.InkshadePDF.Devel.png
       - install -Dm644 flathub/com.github.dafaqboomduck.InkshadePDF.Devel.metainfo.xml /app/share/metainfo/com.github.dafaqboomduck.InkshadePDF.Devel.metainfo.xml
     sources:
       - type: git
