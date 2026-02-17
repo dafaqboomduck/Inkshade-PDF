@@ -26,7 +26,7 @@ def get_resource_path(relative_path: str) -> str:
         base_path = Path(sys._MEIPASS)
     else:
         # Running from source
-        base_path = Path(os.path.abspath('.'))
+        base_path = Path(__file__).resolve().parent.parent  # goes from utils/ up to inkshade/
     
     return str(base_path / relative_path)
 
