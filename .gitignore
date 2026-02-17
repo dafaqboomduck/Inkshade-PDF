@@ -3,7 +3,6 @@ dist/
 build/
 
 InkshadePDF.spec
-requirements.txt
 installer.nsi
 versionfile.txt
 pyinstaller_versionfile.py
