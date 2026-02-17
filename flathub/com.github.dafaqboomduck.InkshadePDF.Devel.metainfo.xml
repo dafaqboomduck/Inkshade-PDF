@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component type="desktop-application">
+  <id>com.github.dafaqboomduck.InkshadePDF.Devel</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>BSD-3-Clause</project_license>
+  <name>Inkshade PDF (Devel)</name>
+  <summary>Development build of Inkshade PDF — for testing only</summary>
+
+  <description>
+    <p>
+      This is the development/testing build of Inkshade PDF. It is built from
+      the build/flatpak branch and may contain unstable or untested features.
+      For the stable version, use Inkshade PDF instead.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">com.github.dafaqboomduck.InkshadePDF.Devel.desktop</launchable>
+
+  <url type="homepage">https://github.com/dafaqboomduck/Inkshade-PDF</url>
+  <url type="bugtracker">https://github.com/dafaqboomduck/Inkshade-PDF/issues</url>
+
+  <provides>
+    <binary>inkshade-pdf-devel</binary>
+  </provides>
+
+  <releases>
+    <release version="0.1.3" date="2025-02-17">
+      <description>
+        <p>Development build 0.1.3</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1" />
+  <developer_name>Razvan Nica</developer_name>
+
+  <categories>
+    <category>Office</category>
+    <category>Viewer</category>
+    <category>Development</category>
+  </categories>
+
+  <keywords>
+    <keyword>PDF</keyword>
+    <keyword>Reader</keyword>
+    <keyword>Devel</keyword>
+    <keyword>Test</keyword>
+  </keywords>
+</component>

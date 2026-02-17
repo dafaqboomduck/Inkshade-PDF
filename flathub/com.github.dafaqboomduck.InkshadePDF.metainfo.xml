@@ -25,37 +25,32 @@
     </ul>
   </description>
 
-  <launchable
-        type="desktop-id"
-    >com.github.dafaqboomduck.InkshadePDF.desktop</launchable>
+  <launchable type="desktop-id">com.github.dafaqboomduck.InkshadePDF.desktop</launchable>
 
   <screenshots>
     <screenshot type="default">
       <caption>Main window showing PDF with annotations</caption>
-      <image
-            >https://raw.githubusercontent.com/dafaqboomduck/Inkshade-PDF/main/screenshots/main.png</image>
+      <image>https://raw.githubusercontent.com/dafaqboomduck/Inkshade-PDF/main/screenshots/main.png</image>
     </screenshot>
     <screenshot>
       <caption>Dark mode with search functionality</caption>
-      <image
-            >https://raw.githubusercontent.com/dafaqboomduck/Inkshade-PDF/main/screenshots/search.png</image>
+      <image>https://raw.githubusercontent.com/dafaqboomduck/Inkshade-PDF/main/screenshots/search.png</image>
     </screenshot>
   </screenshots>
 
   <url type="homepage">https://github.com/dafaqboomduck/Inkshade-PDF</url>
-  <url
-        type="bugtracker"
-    >https://github.com/dafaqboomduck/Inkshade-PDF/issues</url>
+  <url type="bugtracker">https://github.com/dafaqboomduck/Inkshade-PDF/issues</url>
 
   <provides>
     <binary>inkshade-pdf</binary>
   </provides>
 
   <releases>
-    <release version="1.2.0" date="2025-01-27">
+    <release version="0.1.3" date="2025-02-17">
       <description>
-        <p>1.2.0 release with refactored architecture</p>
+        <p>Release 0.1.3</p>
         <ul>
+          <li>New versioning standard</li>
           <li>Modular codebase with dedicated controllers</li>
           <li>Improved annotation management</li>
           <li>Enhanced undo/redo functionality</li>
@@ -68,7 +63,6 @@
   </releases>
 
   <content_rating type="oars-1.1" />
-
   <developer_name>Razvan Nica</developer_name>
 
   <categories>
