@@ -17,7 +17,7 @@ class AnnotationController(QObject):
     annotations_changed = pyqtSignal()  # Emitted when annotations change
     annotation_selected = pyqtSignal(object)  # Emitted when annotation is selected
     
-    def __init__(self, annotation_manager: AnnotationManager, parent: QWidget = None):
+    def __init__(self, annotation_manager: AnnotationManager, parent: QWidget | None = None):
         super().__init__()
         self.annotation_manager = annotation_manager
         self.parent_widget = parent

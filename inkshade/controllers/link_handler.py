@@ -30,7 +30,7 @@ class LinkNavigationHandler(QObject):
     external_link_opened = pyqtSignal(str)  # URL
     link_action_failed = pyqtSignal(str)  # error message
 
-    def __init__(self, main_window: "MainWindow" = None, parent=None):
+    def __init__(self, main_window: MainWindow | None = None, parent=None):
         super().__init__(parent)
         self.main_window = main_window
 
