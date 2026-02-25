@@ -13,11 +13,11 @@ try:
 except ImportError:
     sip = None
 
-from controllers.link_handler import LinkNavigationHandler
-from core.page import PageModel
-from core.search import SearchHighlight
-from core.selection import SelectionManager
-from ui.widgets.page_label import InteractivePageLabel
+from inkshade.controllers.link_handler import LinkNavigationHandler
+from inkshade.core.page import PageModel
+from inkshade.core.search import SearchHighlight
+from inkshade.core.selection import SelectionManager
+from inkshade.ui.widgets.page_label import InteractivePageLabel
 
 
 class PDFViewer:

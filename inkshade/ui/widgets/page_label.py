@@ -16,14 +16,14 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import QApplication, QLabel, QToolTip
 
-from core.annotations import AnnotationType
-from core.page.link_layer import LinkInfo, LinkType
-from core.page.page_model import InteractionType, PageModel
-from core.page.text_layer import CharacterInfo
-from core.selection.selection_manager import SelectionManager
+from inkshade.core.annotations import AnnotationType
+from inkshade.core.page.link_layer import LinkInfo, LinkType
+from inkshade.core.page.page_model import InteractionType, PageModel
+from inkshade.core.page.text_layer import CharacterInfo
+from inkshade.core.selection.selection_manager import SelectionManager
 
 if TYPE_CHECKING:
-    from controllers.link_handler import LinkNavigationHandler
+    from inkshade.controllers.link_handler import LinkNavigationHandler
 
 
 class InteractivePageLabel(QLabel):
@@ -315,7 +315,7 @@ class InteractivePageLabel(QLabel):
 
     def _create_drawing_annotation(self):
         """Create annotation from current drawing."""
-        from core.annotations import Annotation
+        from inkshade.core.annotations import Annotation
 
         # Get main window through parent chain
         main_window = self.parent()

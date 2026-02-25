@@ -1,7 +1,7 @@
 # core/export_worker.py
 
 from PyQt5.QtCore import QThread, pyqtSignal
-from core.document.pdf_exporter import PDFExporter
+from inkshade.core.document.pdf_exporter import PDFExporter
 import tempfile
 import shutil
 import os

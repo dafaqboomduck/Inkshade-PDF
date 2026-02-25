@@ -6,8 +6,8 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox, QColorDialog, QWidget
 from PyQt5.QtGui import QColor
 
-from core.annotations import AnnotationManager, Annotation, AnnotationType
-from utils.warning_manager import warning_manager, WarningType
+from inkshade.core.annotations import AnnotationManager, Annotation, AnnotationType
+from inkshade.utils.warning_manager import warning_manager, WarningType
 
 
 class AnnotationController(QObject):

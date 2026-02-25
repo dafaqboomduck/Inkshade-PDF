@@ -6,8 +6,8 @@ from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from core.page.page_model import PageModel
-from core.page.text_layer import CharacterInfo
+from inkshade.core.page.page_model import PageModel
+from inkshade.core.page.text_layer import CharacterInfo
 
 from .models import PageSelection, SelectionAnchor
 

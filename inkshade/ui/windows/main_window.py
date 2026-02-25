@@ -28,29 +28,29 @@ from PyQt5.QtWidgets import (
 )
 
 # Controller imports
-from controllers import (
+from inkshade.controllers import (
     AnnotationController,
     LinkNavigationHandler,
     UserInputHandler,
     ViewController,
 )
-from core.annotations import AnnotationManager, AnnotationType
+from inkshade.core.annotations import AnnotationManager, AnnotationType
 
 # Core imports
-from core.document import PDFDocumentReader, PDFExporter
-from core.export import ExportWorker
-from core.page import PageModel
-from core.search import PDFSearchEngine, SearchHighlight, SearchWorker
-from core.selection import SelectionManager
-from styles import ThemeManager
-from ui.toolbars import AnnotationToolbar, DrawingToolbar, SearchBar
+from inkshade.core.document import PDFDocumentReader, PDFExporter
+from inkshade.core.export import ExportWorker
+from inkshade.core.page import PageModel
+from inkshade.core.search import PDFSearchEngine, SearchHighlight, SearchWorker
+from inkshade.core.selection import SelectionManager
+from inkshade.styles import ThemeManager
+from inkshade.ui.toolbars import AnnotationToolbar, DrawingToolbar, SearchBar
 
 # UI imports
-from ui.widgets import PDFViewer, TOCWidget
+from inkshade.ui.widgets import PDFViewer, TOCWidget
 
 # Utils and styles
-from utils import get_icon_path, get_resource_path
-from utils.warning_manager import WarningType, warning_manager
+from inkshade.utils import get_icon_path, get_resource_path
+from inkshade.utils.warning_manager import WarningType, warning_manager
 
 
 class MainWindow(QMainWindow):
@@ -817,7 +817,7 @@ class MainWindow(QMainWindow):
                 merged = self._merge_search_rects(rects)
 
                 for rect in merged:
-                    from core.search.models import SearchResult
+                    from inkshade.core.search.models import SearchResult
 
                     rect_tuple = (
                         rect.x0,
@@ -986,7 +986,7 @@ class MainWindow(QMainWindow):
             quads.append(quad)
 
         # Create annotation
-        from core.annotations import Annotation
+        from inkshade.core.annotations import Annotation
 
         annotation = Annotation(
             page_index=self.current_page_index,

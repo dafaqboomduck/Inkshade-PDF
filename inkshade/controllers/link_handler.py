@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox
 
-from core.page.link_layer import LinkInfo, LinkType
+from inkshade.core.page.link_layer import LinkInfo, LinkType
 
 if TYPE_CHECKING:
-    from ui.windows.main_window import MainWindow
+    from inkshade.ui.windows.main_window import MainWindow
 
 
 class LinkNavigationHandler(QObject):

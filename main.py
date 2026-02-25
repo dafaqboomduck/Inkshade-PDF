@@ -1,6 +1,6 @@
 import sys, os
 from PyQt5.QtWidgets import QApplication
-from ui.windows import MainWindow
+from inkshade.ui.windows import MainWindow
 
 def main():
     """

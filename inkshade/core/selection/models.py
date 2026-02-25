@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
-from core.page.text_layer import CharacterInfo
+from inkshade.core.page.text_layer import CharacterInfo
 
 
 @dataclass
