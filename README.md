@@ -41,7 +41,6 @@ pip install PyQt5 PyMuPDF pyperclip
 ```
 
 3. Launch the application:
-
 ```bash
 python main.py
 ```
