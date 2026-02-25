@@ -1,6 +1,7 @@
 """
 Handles link click actions and navigation.
 """
+from __future__ import annotations
 
 import webbrowser
 from typing import TYPE_CHECKING
