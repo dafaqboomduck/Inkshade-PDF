@@ -276,7 +276,7 @@ class MainWindow(QMainWindow):
         self.page_edit = QLineEdit("1", self.top_frame)
         self.page_edit.setObjectName("page_input")
         self.page_edit.setFixedWidth(50)
-        self.page_edit.setAlignment(Qt.AlignCenter)
+        self.page_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.page_edit.setValidator(QIntValidator(1, 1, self))
         self.page_edit.returnPressed.connect(self.page_number_changed)
         self.top_layout.addWidget(self.page_edit)
@@ -293,7 +293,7 @@ class MainWindow(QMainWindow):
         self.zoom_lineedit = QLineEdit("100", self.top_frame)
         self.zoom_lineedit.setObjectName("zoom_input")
         self.zoom_lineedit.setFixedWidth(50)
-        self.zoom_lineedit.setAlignment(Qt.AlignCenter)
+        self.zoom_lineedit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.zoom_lineedit.setValidator(QIntValidator(20, 300, self))
         self.zoom_lineedit.returnPressed.connect(self.manual_zoom_changed)
         self.top_layout.addWidget(self.zoom_lineedit)
@@ -364,7 +364,7 @@ class MainWindow(QMainWindow):
         self.toc_widget.toc_link_clicked.connect(self._handle_toc_click)
 
         # Scroll area connections
-        self.scroll_area.verticalScrollBar().valueChanged.connect(self.on_scroll)
+        self.scroll_area.verticalScrollBar().valueChanged.connect(self.on_scroll)  # type: ignore[union-attr]
 
     def _apply_theme(self):
         """Apply the current theme."""
@@ -389,7 +389,7 @@ class MainWindow(QMainWindow):
             toolbar.move(x, y)
 
     def create_icon_button(
-        self, icon_path: str, tooltip: str, parent: QWidget = None
+        self, icon_path: str, tooltip: str, parent: Optional[QWidget] = None
     ) -> QToolButton:
         """Create an icon button with proper theming."""
         btn = QToolButton(parent)
@@ -407,7 +407,7 @@ class MainWindow(QMainWindow):
     def _color_icon(self, pixmap: QPixmap) -> QPixmap:
         """Color an icon based on theme."""
         colored = QPixmap(pixmap.size())
-        colored.fill(Qt.transparent)
+        colored.fill(Qt.GlobalColor.transparent)
 
         painter = QPainter(colored)
         painter.setCompositionMode(QPainter.CompositionMode_Source)
@@ -438,7 +438,8 @@ class MainWindow(QMainWindow):
             return
 
         # Update search engine
-        self.search_engine.set_document(self.pdf_reader.doc)
+        if self.pdf_reader.doc is not None:
+            self.search_engine.set_document(self.pdf_reader.doc)
 
         # Update view controller
         self.view_controller.set_document_info(total_pages)
@@ -465,7 +466,7 @@ class MainWindow(QMainWindow):
 
         # Clear and update pages
         self.page_manager.clear_all()
-        self.scroll_area.verticalScrollBar().setValue(0)
+        self.scroll_area.verticalScrollBar().setValue(0)  # type: ignore[union-attr]
         self.current_page_index = 0
         self.update_visible_pages()
 
@@ -532,7 +533,7 @@ class MainWindow(QMainWindow):
         self.current_page_index = 0
         self.page_height = None
         self.loaded_pages.clear()
-        self.scroll_area.verticalScrollBar().setValue(0)
+        self.scroll_area.verticalScrollBar().setValue(0)  # type: ignore[union-attr]
 
         self.document_closed.emit()
         self._update_undo_redo_buttons()
@@ -678,7 +679,7 @@ class MainWindow(QMainWindow):
                     target_y = (
                         current_page_index * (self.page_height + self.page_spacing)
                     ) + new_offset
-                    self.scroll_area.verticalScrollBar().setValue(int(target_y))
+                    self.scroll_area.verticalScrollBar().setValue(int(target_y))  # type: ignore[union-attr]
                 else:
                     # No pages exist yet, fall back to old method
                     self.page_manager.set_zoom(self.zoom)
@@ -699,7 +700,7 @@ class MainWindow(QMainWindow):
             target_y = (
                 current_page_index * (self.page_height + self.page_spacing)
             ) + offset_in_page
-            self.scroll_area.verticalScrollBar().setValue(int(target_y))
+            self.scroll_area.verticalScrollBar().setValue(int(target_y))  # type: ignore[union-attr]
 
             # Restore search highlight if active
             if self.search_engine.search_results:
@@ -740,7 +741,9 @@ class MainWindow(QMainWindow):
         if self.current_page_index in self.loaded_pages:
             self.loaded_pages[self.current_page_index].repaint()
         self.page_container.repaint()
-        self.scroll_area.viewport().repaint()
+        viewport = self.scroll_area.viewport()
+        if viewport:
+            viewport.repaint()
 
     # Search Methods
 
@@ -867,9 +870,7 @@ class MainWindow(QMainWindow):
         merged = []
         current = [rects[0]]
 
-        def merge_group(group):
-            if not group:
-                return None
+        def merge_group(group) -> "fitz.Rect":
             x0 = min(r.x0 for r in group)
             y0 = min(r.y0 for r in group)
             x1 = max(r.x1 for r in group)
@@ -919,12 +920,12 @@ class MainWindow(QMainWindow):
         if page_idx is not None and rect is not None:
             if hasattr(rect, "x0"):
                 rect_tuple = (
-                    rect.x0,
-                    rect.y0,
-                    rect.x1,
-                    rect.y1,
-                    rect.width,
-                    rect.height,
+                    rect.x0,  # type: ignore[union-attr]
+                    rect.y0,  # type: ignore[union-attr]
+                    rect.x1,  # type: ignore[union-attr]
+                    rect.y1,  # type: ignore[union-attr]
+                    rect.width,  # type: ignore[union-attr]
+                    rect.height,  # type: ignore[union-attr]
                 )
             else:
                 rect_tuple = rect
@@ -1099,7 +1100,7 @@ class MainWindow(QMainWindow):
             "Preparing to export annotations...", None, 0, 100, self
         )
         progress.setWindowTitle("Saving PDF")
-        progress.setWindowModality(Qt.WindowModal)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
         progress.setCancelButton(None)
         progress.setAutoClose(False)
@@ -1145,7 +1146,8 @@ class MainWindow(QMainWindow):
                 self.load_pdf(source_pdf)
 
             # Clean up worker
-            self.export_worker.deleteLater()
+            if self.export_worker is not None:
+                self.export_worker.deleteLater()
             self.export_worker = None
 
         self.export_worker.progress.connect(on_progress)
@@ -1217,29 +1219,29 @@ class MainWindow(QMainWindow):
 
     # Event Handlers
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event):  # type: ignore[override]
         """Handle keyboard shortcuts."""
         # Undo/Redo
-        if event.modifiers() & Qt.ControlModifier:
-            if event.key() == Qt.Key_Z:
-                if event.modifiers() & Qt.ShiftModifier:
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if event.key() == Qt.Key.Key_Z:
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                     self.redo_annotation()
                 else:
                     self.undo_annotation()
                 event.accept()
                 return
-            elif event.key() == Qt.Key_Y:
+            elif event.key() == Qt.Key.Key_Y:
                 self.redo_annotation()
                 event.accept()
                 return
-            elif event.key() == Qt.Key_A:
+            elif event.key() == Qt.Key.Key_A:
                 # Select all on current page
                 self.page_manager.select_all_on_page(self.current_page_index)
                 event.accept()
                 return
 
         # Escape to clear selection
-        if event.key() == Qt.Key_Escape:
+        if event.key() == Qt.Key.Key_Escape:
             if self.search_bar.isVisible():
                 self._hide_search_bar()
             else:
@@ -1250,12 +1252,12 @@ class MainWindow(QMainWindow):
         # Delegate to input handler for other shortcuts
         self.input_handler.handle_key_press(event)
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event):  # type: ignore[override]
         """Handle window resize."""
         super().resizeEvent(event)
         self._update_toolbar_positions()
 
-    def closeEvent(self, event):
+    def closeEvent(self, event):  # type: ignore[override]
         """Handle window close with one-time warning per session."""
         if self.annotation_manager.has_unsaved_changes:
             # Use warning manager for potentially one-time warning

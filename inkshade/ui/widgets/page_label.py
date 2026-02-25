@@ -2,7 +2,7 @@
 Interactive page label with character-level selection and link support.
 """
 
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple, cast
 
 from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import (
@@ -24,6 +24,7 @@ from inkshade.core.selection.selection_manager import SelectionManager
 
 if TYPE_CHECKING:
     from inkshade.controllers.link_handler import LinkNavigationHandler
+    from inkshade.ui.windows.main_window import MainWindow
 
 
 class InteractivePageLabel(QLabel):
@@ -90,7 +91,7 @@ class InteractivePageLabel(QLabel):
 
         # Setup
         self.setMouseTracking(True)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._render()
 
     def _render(self):
@@ -132,7 +133,7 @@ class InteractivePageLabel(QLabel):
         if filled is not None:
             self._drawing_filled = filled
 
-        self.setCursor(Qt.CrossCursor if enabled else Qt.ArrowCursor)
+        self.setCursor(Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.ArrowCursor)
 
     def _to_pdf_coords(self, pos) -> Tuple[float, float]:
         """Convert widget coordinates to PDF coordinates."""
@@ -144,10 +145,10 @@ class InteractivePageLabel(QLabel):
 
     # Mouse event handlers
 
-    def mousePressEvent(self, event: QMouseEvent):
+    def mousePressEvent(self, event: QMouseEvent):  # type: ignore[override]
         self.setFocus()
 
-        if event.button() != Qt.LeftButton:
+        if event.button() != Qt.MouseButton.LeftButton:
             return super().mousePressEvent(event)
 
         # Handle drawing mode
@@ -162,7 +163,7 @@ class InteractivePageLabel(QLabel):
         element = self.page_model.get_element_at_point(pos.x(), pos.y(), self.zoom)
 
         # Handle click counting for double/triple click
-        if self._last_click_pos and (pos - self._last_click_pos).manhattanLength() < 5:
+        if self._last_click_pos is not None and (pos - self._last_click_pos).manhattanLength() < 5:
             self._click_count += 1
         else:
             self._click_count = 1
@@ -188,7 +189,7 @@ class InteractivePageLabel(QLabel):
                 # Single click: start selection
                 self._is_selecting = True
 
-                if event.modifiers() & Qt.ShiftModifier:
+                if bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                     # Shift+click: extend selection
                     self.selection_manager.extend_selection(
                         self.page_model.page_index, char
@@ -204,11 +205,11 @@ class InteractivePageLabel(QLabel):
 
         else:
             # Clicked on empty area
-            if not (event.modifiers() & Qt.ShiftModifier):
+            if not bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                 self.selection_manager.clear()
                 self.update()
 
-    def mouseMoveEvent(self, event: QMouseEvent):
+    def mouseMoveEvent(self, event: QMouseEvent):  # type: ignore[override]
         pos = event.pos()
 
         # Handle drawing
@@ -217,7 +218,7 @@ class InteractivePageLabel(QLabel):
             return
 
         # Handle selection dragging
-        if self._is_selecting and (event.buttons() & Qt.LeftButton):
+        if self._is_selecting and bool(event.buttons() & Qt.MouseButton.LeftButton):
             element = self.page_model.get_element_at_point(pos.x(), pos.y(), self.zoom)
 
             if element.type == InteractionType.TEXT:
@@ -237,7 +238,7 @@ class InteractivePageLabel(QLabel):
             if link != self._hovered_link:
                 self._hovered_link = link
                 self.link_hovered.emit(link)
-                self.setCursor(Qt.PointingHandCursor)
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
 
                 # Show tooltip
                 if self.link_handler:
@@ -251,17 +252,17 @@ class InteractivePageLabel(QLabel):
                 self._hovered_link = None
                 self.link_hovered.emit(None)
                 self.update()
-            self.setCursor(Qt.IBeamCursor)
+            self.setCursor(Qt.CursorShape.IBeamCursor)
 
         else:
             if self._hovered_link:
                 self._hovered_link = None
                 self.link_hovered.emit(None)
                 self.update()
-            self.setCursor(Qt.ArrowCursor)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
 
-    def mouseReleaseEvent(self, event: QMouseEvent):
-        if event.button() != Qt.LeftButton:
+    def mouseReleaseEvent(self, event: QMouseEvent):  # type: ignore[override]
+        if event.button() != Qt.MouseButton.LeftButton:
             return super().mouseReleaseEvent(event)
 
         # Handle drawing
@@ -318,11 +319,12 @@ class InteractivePageLabel(QLabel):
         from inkshade.core.annotations import Annotation
 
         # Get main window through parent chain
-        main_window = self.parent()
-        while main_window and not hasattr(main_window, "annotation_manager"):
-            main_window = main_window.parent()
+        main_window_widget = self.parent()
+        while main_window_widget and not hasattr(main_window_widget, "annotation_manager"):
+            main_window_widget = main_window_widget.parent()
 
-        if main_window and self._drawing_points:
+        if main_window_widget and self._drawing_points:
+            main_window = cast("MainWindow", main_window_widget)
             annotation = Annotation(
                 page_index=self.page_model.page_index,
                 annotation_type=self._drawing_tool,
@@ -342,7 +344,7 @@ class InteractivePageLabel(QLabel):
 
     # Paint methods
 
-    def paintEvent(self, event):
+    def paintEvent(self, event):  # type: ignore[override]
         try:
             super().paintEvent(event)
 
@@ -380,7 +382,7 @@ class InteractivePageLabel(QLabel):
             color = QColor(0, 89, 195, 100)
 
         painter.setBrush(QBrush(color))
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
 
         for rect in selection.rects:
             screen_rect = QRectF(
@@ -435,7 +437,7 @@ class InteractivePageLabel(QLabel):
                     )
 
                 painter.setBrush(QBrush(color))
-                painter.setPen(Qt.NoPen)
+                painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawRect(screen_rect)
             except Exception as e:
                 print(f"Error painting search highlight: {e}")
@@ -461,7 +463,7 @@ class InteractivePageLabel(QLabel):
 
         # Optional: draw subtle highlight
         painter.setBrush(QBrush(QColor(0, 100, 200, 30)))
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRect(screen_rect)
 
     def _paint_annotations(self, painter: QPainter):
@@ -478,7 +480,7 @@ class InteractivePageLabel(QLabel):
         """Paint a highlight annotation."""
         color = QColor(ann.color[0], ann.color[1], ann.color[2], 100)
         painter.setBrush(QBrush(color))
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
 
         for quad in ann.quads:
             rect = QRectF(

@@ -78,6 +78,8 @@ class PDFExporter(QObject):
         try:
             if annotation.annotation_type == AnnotationType.HIGHLIGHT:
                 # Add highlight annotations
+                if not annotation.quads:
+                    return
                 for quad in annotation.quads:
                     # Convert quad format [x0, y0, x1, y1, x2, y2, x3, y3] to fitz.Quad
                     rect = fitz.Rect(quad[0], quad[1], quad[2], quad[5])
@@ -89,6 +91,8 @@ class PDFExporter(QObject):
             
             elif annotation.annotation_type == AnnotationType.UNDERLINE:
                 # Add underline annotations
+                if not annotation.quads:
+                    return
                 for quad in annotation.quads:
                     rect = fitz.Rect(quad[0], quad[1], quad[2], quad[5])
                     color = [c / 255.0 for c in annotation.color]
@@ -107,7 +111,7 @@ class PDFExporter(QObject):
                     
                     ink = page.add_ink_annot(ink_list)
                     ink.set_colors(stroke=color)
-                    ink.set_border(width=annotation.stroke_width)
+                    ink.set_border(width=int(annotation.stroke_width))
                     
                     # Fill if requested (use shape drawing instead)
                     if annotation.filled:
@@ -197,7 +201,7 @@ class PDFExporter(QObject):
                         square = page.add_rect_annot(rect)
                         square.set_colors(stroke=color)
                     
-                    square.set_border(width=annotation.stroke_width)
+                    square.set_border(width=int(annotation.stroke_width))
                     square.update()
             
             elif annotation.annotation_type == AnnotationType.CIRCLE:
@@ -219,7 +223,7 @@ class PDFExporter(QObject):
                         circle = page.add_circle_annot(rect)
                         circle.set_colors(stroke=color)
                     
-                    circle.set_border(width=annotation.stroke_width)
+                    circle.set_border(width=int(annotation.stroke_width))
                     circle.update()
                     
         except Exception as e:

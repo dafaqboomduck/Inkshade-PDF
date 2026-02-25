@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import QApplication
 
 # Import sip for checking deleted widgets
 try:
-    import sip
+    import sip  # type: ignore[import-untyped]
 except ImportError:
     sip = None
 
@@ -290,10 +290,12 @@ class PDFViewer:
 
         for idx, label in list(self.loaded_pages.items()):
             if self._is_widget_valid(label) and label.pixmap():
-                pix_width = label.pixmap().width()
-                x = (container_width - pix_width) // 2
-                y = idx * (self.page_height + self.page_spacing)
-                label.move(x, y)
+                pixmap = label.pixmap()
+                if pixmap:
+                    pix_width = pixmap.width()
+                    x = (container_width - pix_width) // 2
+                    y = idx * (self.page_height + self.page_spacing)
+                    label.move(x, y)
 
         event.accept()
 
@@ -394,7 +396,7 @@ class PDFViewer:
 
         label.link_clicked.connect(self._on_link_clicked)
         label.selection_changed.connect(self._on_selection_changed)
-        label.setAlignment(Qt.AlignCenter)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         if self.page_height is None:
             pixmap = label.pixmap()
